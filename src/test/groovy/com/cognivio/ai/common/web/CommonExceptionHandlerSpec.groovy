@@ -8,6 +8,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.core.MethodParameter
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.validation.BeanPropertyBindingResult
 import org.springframework.validation.FieldError
@@ -84,6 +85,15 @@ class CommonExceptionHandlerSpec extends Specification {
         then:
         response.statusCode == HttpStatus.CONFLICT
         response.body.error() == 'CONCURRENT_UPDATE_CONFLICT'
+    }
+
+    def "DataIntegrityViolationException maps to 409 CONSTRAINT_CONFLICT"() {
+        when:
+        def response = handler.handleDataIntegrity(new DataIntegrityViolationException('duplicate key'))
+
+        then:
+        response.statusCode == HttpStatus.CONFLICT
+        response.body.error() == 'CONSTRAINT_CONFLICT'
     }
 
     def "MissingServletRequestParameterException maps to 400 with the parameter name"() {
