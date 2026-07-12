@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      spring-boot-starter-parent is used ONLY for dependency management + the
+      standard plugin versions, exactly like the services. This module is a
+      LIBRARY: packaging is `jar` and the spring-boot-maven-plugin repackage
+      goal is NEVER applied, so `mvn install` produces a plain library jar (not
+      an executable fat jar).
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.4</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.cognivio.ai</groupId>
+    <artifactId>ilr-common</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>ilr-common</name>
+    <description>
+        Shared cross-cutting library for the ILR Application Agent platform:
+        Cognito JWT verification (OAuth2 resource server), verified-claim
+        tenant/caller context, Postgres RLS session binding, and the common web
+        DTOs + exception handler. Consumed by every ILR microservice as
+        com.cognivio.ai:ilr-common:0.1.0-SNAPSHOT.
+    </description>
+
+    <properties>
+        <java.version>21</java.version>
+        <groovy.version>4.0.22</groovy.version>
+        <spock.version>2.3-groovy-4.0</spock.version>
+    </properties>
+
+    <dependencies>
+        <!--
+          All Spring dependencies are `provided`: every consuming service already
+          brings them at runtime via its own starters (web, security, data-jpa,
+          validation). Keeping them provided means this library jar stays lean and
+          never dictates the runtime versions of the consuming app. `provided`
+          scope is still present on the compile AND test classpaths, so the library
+          compiles and its own unit tests run.
+        -->
+
+        <!-- Auto-configuration infrastructure -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- SLF4J API (logging facade; consumers supply the binding via spring-boot-starter-logging) -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Web (RestControllerAdvice, HandlerExceptionResolver, servlet filter) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Security: OAuth2 resource server (JWT verification) + JOSE (Nimbus) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-config</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-resource-server</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Transaction + JDBC + AOP (RLS set_config binding) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Jackson (serializing ErrorResponse from the auth entry point) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Bean Validation (ConstraintViolationException handling) -->
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Lombok (compile-only convenience; not transitive to consumers) -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Generates IDE metadata for the ilr.security / ilr.rls properties -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ============================ TEST ============================ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spock (Groovy BDD) — matches the services' testing convention -->
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+            <version>${groovy.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.spockframework</groupId>
+            <artifactId>spock-core</artifactId>
+            <version>${spock.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.spockframework</groupId>
+            <artifactId>spock-spring</artifactId>
+            <version>${spock.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!--
+          NOTE: no spring-boot-maven-plugin here. A library must remain a plain
+          jar; applying the repackage goal would turn it into an executable fat
+          jar that cannot be used as a normal dependency.
+        -->
+        <plugins>
+            <!-- Compiles Groovy (Spock) specs living under src/test/groovy -->
+            <plugin>
+                <groupId>org.codehaus.gmavenplus</groupId>
+                <artifactId>gmavenplus-plugin</artifactId>
+                <version>3.0.2</version>
+                <executions>
+                    <execution>
+                        <phase>generate-test-sources</phase>
+                        <goals>
+                            <goal>compileTests</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <testSources>
+                        <testSource>
+                            <directory>${project.basedir}/src/test/groovy</directory>
+                            <includes>
+                                <include>**/*.groovy</include>
+                            </includes>
+                        </testSource>
+                    </testSources>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*Spec.java</include>
+                        <include>**/*Spec.class</include>
+                        <include>**/*Test.java</include>
+                    </includes>
+                    <useFile>false</useFile>
+                </configuration>
+            </plugin>
+        </plugins>
+        <testSourceDirectory>src/test/groovy</testSourceDirectory>
+    </build>
+</project>
