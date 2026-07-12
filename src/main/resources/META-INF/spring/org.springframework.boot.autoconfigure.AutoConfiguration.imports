@@ -1,0 +1,5 @@
+com.cognivio.ai.common.web.IlrWebAutoConfiguration
+com.cognivio.ai.common.context.IlrTenantContextAutoConfiguration
+com.cognivio.ai.common.security.IlrSecurityAutoConfiguration
+com.cognivio.ai.common.security.IlrSecurityDisabledAutoConfiguration
+com.cognivio.ai.common.tenancy.IlrRlsAutoConfiguration
