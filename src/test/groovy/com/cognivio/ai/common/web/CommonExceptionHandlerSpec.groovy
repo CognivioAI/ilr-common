@@ -8,6 +8,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.core.MethodParameter
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.validation.BeanPropertyBindingResult
 import org.springframework.validation.FieldError
 import org.springframework.validation.ObjectError
@@ -74,6 +75,15 @@ class CommonExceptionHandlerSpec extends Specification {
         response.statusCode == HttpStatus.BAD_REQUEST
         response.body.details()[0].field() == 'size'
         response.body.details()[0].message() == 'must be positive'
+    }
+
+    def "OptimisticLockingFailureException maps to 409 CONCURRENT_UPDATE_CONFLICT"() {
+        when:
+        def response = handler.handleOptimisticLock(new OptimisticLockingFailureException('stale version'))
+
+        then:
+        response.statusCode == HttpStatus.CONFLICT
+        response.body.error() == 'CONCURRENT_UPDATE_CONFLICT'
     }
 
     def "MissingServletRequestParameterException maps to 400 with the parameter name"() {
