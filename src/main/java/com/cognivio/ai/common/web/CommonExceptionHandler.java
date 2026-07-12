@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -72,6 +73,22 @@ public class CommonExceptionHandler {
         return ResponseEntity.badRequest()
                 .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), "VALIDATION_ERROR",
                         "Request validation failed", details, traceId()));
+    }
+
+    /**
+     * 409 for a concurrent-write conflict on an {@code @Version}-guarded entity
+     * (read-modify-write). Without this, an optimistic-lock failure would fall
+     * through to the default error page instead of the standard error shape.
+     * Catches Spring's {@link OptimisticLockingFailureException}, which JPA's
+     * {@code ObjectOptimisticLockingFailureException} extends.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockingFailureException ex) {
+        log.warn("Optimistic lock conflict: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), "CONCURRENT_UPDATE_CONFLICT",
+                        "This resource was updated by another request — retry with the latest version",
+                        List.of(), traceId()));
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
