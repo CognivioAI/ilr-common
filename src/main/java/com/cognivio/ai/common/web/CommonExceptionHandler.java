@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -89,6 +90,20 @@ public class CommonExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), "CONCURRENT_UPDATE_CONFLICT",
                         "This resource was updated by another request — retry with the latest version",
                         List.of(), traceId()));
+    }
+
+    /**
+     * 409 safety net for a database UNIQUE / integrity constraint violation that
+     * reaches the boundary. Services normally catch and resolve these idempotently
+     * in the service layer (returning the existing row); this ensures any that slip
+     * through return a 409 in the standard shape rather than a raw 500.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation reached the boundary: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), "CONSTRAINT_CONFLICT",
+                        "The request conflicts with existing data — retry", List.of(), traceId()));
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)
