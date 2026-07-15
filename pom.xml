@@ -131,6 +131,22 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- CRaC API for AWS Lambda SnapStart (KAN-59). Compile scope — unlike the other Spring deps
+             this is a genuinely new runtime dependency the consuming services don't otherwise carry,
+             so it must be transitive. Tiny facade jar; a no-op on an ordinary (non-CRaC) JVM. -->
+        <dependency>
+            <groupId>org.crac</groupId>
+            <artifactId>crac</artifactId>
+        </dependency>
+
+        <!-- HikariCP: compile-time reference for the SnapStart datasource checkpoint hook. Provided —
+             every JPA service already supplies it at runtime via spring-boot-starter-data-jpa. -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Lombok (compile-only convenience; not transitive to consumers) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
