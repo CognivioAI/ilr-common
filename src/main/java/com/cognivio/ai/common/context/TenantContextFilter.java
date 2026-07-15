@@ -5,6 +5,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Set;
+import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -31,15 +33,24 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  */
 public class TenantContextFilter extends OncePerRequestFilter {
 
+    // Roles granted to the synthetic dev identity so role-gated endpoints are reachable locally.
+    private static final Set<String> DEV_ROLES = Set.of("firm-admin", "consultant", "reviewer", "applicant");
+
     private final TenantContext tenantContext;
     private final TenantClaimResolver resolver;
     private final HandlerExceptionResolver handlerExceptionResolver;
+    // Dev fallback identity, active ONLY under dev-permit-all (never in a secured deployment).
+    private final UUID devTenantId;
+    private final UUID devUserId;
 
     public TenantContextFilter(TenantContext tenantContext, TenantClaimResolver resolver,
-                               HandlerExceptionResolver handlerExceptionResolver) {
+                               HandlerExceptionResolver handlerExceptionResolver,
+                               UUID devTenantId, UUID devUserId) {
         this.tenantContext = tenantContext;
         this.resolver = resolver;
         this.handlerExceptionResolver = handlerExceptionResolver;
+        this.devTenantId = devTenantId;
+        this.devUserId = devUserId;
     }
 
     @Override
@@ -55,6 +66,12 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 handlerExceptionResolver.resolveException(request, response, null, ex);
                 return;
             }
+        } else if (devTenantId != null) {
+            // dev-permit-all mode: no JWT, so seed a deterministic dev tenant/user. Without this,
+            // TenantContext stays empty and every write fails the NOT NULL tenant_id constraint.
+            // devTenantId is non-null ONLY when dev-permit-all is enabled (see the auto-configuration),
+            // so this branch can never activate in a secured deployment.
+            tenantContext.populate(devTenantId, devTenantId, devUserId, DEV_ROLES);
         }
         chain.doFilter(request, response);
     }
