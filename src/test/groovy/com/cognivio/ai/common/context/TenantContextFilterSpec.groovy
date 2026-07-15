@@ -37,7 +37,7 @@ class TenantContextFilterSpec extends Specification {
 
         and:
         def ctx = new TenantContext()
-        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver)
+        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver, null, null)
         def request = new MockHttpServletRequest()
         request.addHeader('X-Tenant-Id', spoofedTenant.toString())
         def chain = new MockFilterChain()
@@ -57,7 +57,7 @@ class TenantContextFilterSpec extends Specification {
     def "leaves TenantContext empty when there is no authenticated JWT (permit-listed endpoint)"() {
         given:
         def ctx = new TenantContext()
-        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver)
+        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver, null, null)
         def chain = new MockFilterChain()
 
         when:
@@ -68,12 +68,31 @@ class TenantContextFilterSpec extends Specification {
         chain.request != null
     }
 
+    def "seeds a deterministic dev tenant when there is no JWT and a dev identity is configured (dev-permit-all)"() {
+        given: 'no authenticated JWT, but a dev tenant/user is wired (dev-permit-all mode)'
+        def devTenant = UUID.randomUUID()
+        def devUser = UUID.randomUUID()
+        def ctx = new TenantContext()
+        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver, devTenant, devUser)
+        def chain = new MockFilterChain()
+
+        when:
+        filter.doFilter(new MockHttpServletRequest(), new MockHttpServletResponse(), chain)
+
+        then: 'the context carries the dev identity so writes have a tenant, and the chain proceeds'
+        ctx.present
+        ctx.tenantId == devTenant
+        ctx.userId == devUser
+        chain.request != null
+        0 * exceptionResolver.resolveException(_, _, _, _)
+    }
+
     def "renders MissingTenantClaimException via the exception resolver and stops the chain"() {
         given: 'an authenticated JWT with no tenant claim'
         def jwt = jwts.verifiedJwt([sub: UUID.randomUUID().toString()])
         SecurityContextHolder.context.authentication = new JwtAuthenticationToken(jwt)
         def ctx = new TenantContext()
-        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver)
+        def filter = new TenantContextFilter(ctx, resolver, exceptionResolver, null, null)
         def chain = new MockFilterChain()
 
         when:

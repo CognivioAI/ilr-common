@@ -30,6 +30,17 @@ public class IlrSecurityProperties {
     private boolean devPermitAll = false;
 
     /**
+     * Dev-only tenant id seeded into {@code TenantContext} when {@link #devPermitAll} is enabled and
+     * the request carries no JWT. Without an identity in dev mode, writes fail the NOT NULL
+     * {@code tenant_id} constraint. Ignored entirely unless {@code devPermitAll} is true, so it can
+     * never affect a secured deployment. Default is a fixed, obviously-synthetic UUID.
+     */
+    private String devTenantId = "00000000-0000-0000-0000-000000000001";
+
+    /** Dev-only user id seeded alongside {@link #devTenantId}. See {@link #devTenantId}. */
+    private String devUserId = "00000000-0000-0000-0000-0000000000a1";
+
+    /**
      * Cognito user-pool issuer URI, e.g.
      * {@code https://cognito-idp.eu-west-2.amazonaws.com/<userPoolId>}. When set,
      * the resource server discovers the JWKS from {@code <issuer>/.well-known/...}
@@ -83,6 +94,22 @@ public class IlrSecurityProperties {
 
     public void setDevPermitAll(boolean devPermitAll) {
         this.devPermitAll = devPermitAll;
+    }
+
+    public String getDevTenantId() {
+        return devTenantId;
+    }
+
+    public void setDevTenantId(String devTenantId) {
+        this.devTenantId = devTenantId;
+    }
+
+    public String getDevUserId() {
+        return devUserId;
+    }
+
+    public void setDevUserId(String devUserId) {
+        this.devUserId = devUserId;
     }
 
     public String getIssuerUri() {

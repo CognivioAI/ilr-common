@@ -2,6 +2,7 @@ package com.cognivio.ai.common.context;
 
 import com.cognivio.ai.common.security.IlrSecurityProperties;
 import com.cognivio.ai.common.security.JwtRoleConverter;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -53,12 +54,29 @@ public class IlrTenantContextAutoConfiguration {
     public FilterRegistrationBean<TenantContextFilter> tenantContextFilterRegistration(
             TenantContext tenantContext,
             TenantClaimResolver resolver,
+            IlrSecurityProperties properties,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
-        TenantContextFilter filter = new TenantContextFilter(tenantContext, resolver, handlerExceptionResolver);
+        // The synthetic dev identity is wired ONLY under dev-permit-all; otherwise both are null and
+        // the filter's dev fallback is inert, so a secured deployment is never affected.
+        UUID devTenantId = properties.isDevPermitAll() ? parseUuid(properties.getDevTenantId()) : null;
+        UUID devUserId = properties.isDevPermitAll() ? parseUuid(properties.getDevUserId()) : null;
+        TenantContextFilter filter =
+                new TenantContextFilter(tenantContext, resolver, handlerExceptionResolver, devTenantId, devUserId);
         FilterRegistrationBean<TenantContextFilter> registration = new FilterRegistrationBean<>(filter);
         // Run immediately after Spring Security's filter chain (DEFAULT_FILTER_ORDER = -100),
         // so authentication is present in the SecurityContext, but before the controller.
         registration.setOrder(SecurityProperties.DEFAULT_FILTER_ORDER + 10);
         return registration;
+    }
+
+    private static UUID parseUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 }
