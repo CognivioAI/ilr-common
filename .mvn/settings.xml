@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Project-local Maven settings (KAN-116).
+
+  Why this exists: a developer's machine-level ~/.m2/settings.xml may mirror all artifact
+  resolution to an internal corporate repository belonging to unrelated work. When that host is
+  unreachable, every build here fails on plugin resolution with a connect timeout, even though this
+  project has no internal dependencies at all.
+
+  Rather than asking each developer to edit their global settings — which belongs to their other
+  work and is not ours to change — the project pins its own. .mvn/maven.config passes this file
+  automatically, so a plain `mvn verify` picks it up with no flags and no per-machine setup.
+
+  No effect on CI: runners start with no global settings file and already resolve from Central.
+  This makes local builds match CI rather than changing CI.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <mirrors>
+    <mirror>
+      <id>central-https</id>
+      <name>Maven Central over HTTPS</name>
+      <url>https://repo1.maven.org/maven2/</url>
+      <!--
+        Everything except a repository declared with the id `cognivio`. All current dependencies are
+        public, so `*` alone would work today; the exclusion is here so that publishing ilr-common to
+        an internal registry (CodeArtifact/Nexus) later is not silently swallowed by this mirror.
+      -->
+      <mirrorOf>*,!cognivio</mirrorOf>
+    </mirror>
+  </mirrors>
+
+</settings>
