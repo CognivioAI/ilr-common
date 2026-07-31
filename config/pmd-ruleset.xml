@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="ILR curated rules"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+    <description>
+        A deliberately small, low-noise PMD ruleset (KAN-168), mirrored from the service standard
+        (e.g. ilr-eligibility-service, KAN-64): high-signal rules that catch real problems on clean
+        code without drowning the team in style nits. Widen over time as desired, kept identical to
+        the service ruleset so a shared library and its consumers are held to the same bar.
+    </description>
+
+    <!-- Dead code -->
+    <rule ref="category/java/bestpractices.xml/UnusedLocalVariable"/>
+    <rule ref="category/java/bestpractices.xml/UnusedPrivateField"/>
+    <rule ref="category/java/bestpractices.xml/UnusedPrivateMethod"/>
+    <rule ref="category/java/codestyle.xml/UnnecessaryImport"/>
+
+    <!-- Correctness traps -->
+    <rule ref="category/java/errorprone.xml/EmptyCatchBlock"/>
+    <rule ref="category/java/errorprone.xml/CompareObjectsWithEquals"/>
+</ruleset>

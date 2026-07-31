@@ -36,6 +36,31 @@
         <groovy.version>4.0.22</groovy.version>
         <spock.version>2.3-groovy-4.0</spock.version>
         <archunit.version>1.3.0</archunit.version>
+
+        <!--
+          Quality gate (KAN-168), versions pinned to match the service standard exactly
+          (e.g. ilr-eligibility-service). jacoco's <excludes> below drop *AutoConfiguration
+          (pure @Bean wiring) and *Properties (@ConfigurationProperties data holders) from the
+          denominator, mirroring the services' **/config/** / *Config.class / *Properties.class
+          exclusion — that IS this module's equivalent of "untestable Spring wiring".
+
+          coverage.line.min was set by running `mvn verify` against what's on main with those
+          exclusions applied and reading the actual measured ratio (80.6% line coverage at the
+          time of KAN-168), not guessed up front: this module turned out to have no
+          controller/service/repository layer inflating the numerator the way a service's does,
+          but the classes that remain after excluding wiring (JWT conversion, tenant context,
+          RLS session binding, the exception handler) are exactly the security/tenancy-critical
+          code this library exists for, and they were already well covered. 0.75 is a deliberate
+          ~5-point floor below the measured 80.6%, not the service's flat 0.80: with only 16
+          classes in the bundle, a single medium class going untested for one PR moves the ratio
+          by several points, and pinning the floor 0.6pp under actual (i.e. to 0.80) would make
+          the gate flap on unrelated changes rather than catch real regressions.
+        -->
+        <jacoco.version>0.8.12</jacoco.version>
+        <coverage.line.min>0.75</coverage.line.min>
+        <spotbugs.plugin.version>4.8.6.4</spotbugs.plugin.version>
+        <findsecbugs.version>1.13.0</findsecbugs.version>
+        <pmd.plugin.version>3.26.0</pmd.plugin.version>
     </properties>
 
     <dependencies>
@@ -226,6 +251,49 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          KAN-222: ilr-common has no application of its own, so the harness is proved against a
+          minimal @SpringBootApplication living in src/test
+          (com.cognivio.ai.common.testsupport.selftest). That app needs web + JPA + Flyway +
+          actuator at TEST scope only — this library must never push a web/JPA runtime onto a
+          consumer. Consuming services already carry all four at compile scope via their own
+          starters, so nothing here is expected of them.
+
+          These are also what make the harness's central claim testable at all: `ddl-auto: validate`
+          against a real Flyway-migrated schema, and /actuator/health reaching the real permit-list.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Flyway 10 (Boot 3.3) needs the per-database module on the classpath explicitly. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -273,8 +341,20 @@
                   in them at all: without this harness a "403 for the wrong role" spec would pass
                   whether or not the annotation is there.
 
+                * com.cognivio.ai.common.testsupport.integration.* — the Spring-context integration
+                  test harness (KAN-222): singleton Testcontainers Postgres, the ilr_owner/ilr_app
+                  role split the V3 migrations expect, and a base spec that boots a REAL Spring
+                  context with security and RLS forced on.
+
               Consumers add:  <classifier>tests</classifier> <scope>test</scope>
               plus their own test-scoped archunit dependency (see the dependency comment above).
+
+              The `excludes` below keep ilr-common's OWN proof harness out of the published jar.
+              The selftest package contains a @SpringBootApplication, an @Entity and a
+              @RestController; db/harness/migration contains Flyway scripts. Shipping either would
+              be actively harmful to a consumer — a stray @SpringBootConfiguration on the test
+              classpath breaks @SpringBootTest's configuration search, and stray migrations on the
+              classpath can be picked up by the consumer's Flyway locations.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -285,6 +365,12 @@
                         <goals>
                             <goal>test-jar</goal>
                         </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>com/cognivio/ai/common/testsupport/selftest/**</exclude>
+                                <exclude>db/harness/**</exclude>
+                            </excludes>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -331,6 +417,117 @@
                     </includes>
                     <useFile>false</useFile>
                 </configuration>
+            </plugin>
+
+            <!-- Coverage (KAN-168): the agent instruments the Spock run; `report` writes the HTML/XML;
+                 `check` fails the build if line coverage drops below ${coverage.line.min}. Matches the
+                 service standard's mechanics (see ilr-eligibility-service/pom.xml); see the property
+                 comment above for why the floor differs from the services' 0.80. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <!-- Exclude untestable Spring wiring from coverage, same rationale as the service
+                         standard's **/config/** / *Config.class exclusion: this module has no main
+                         class or @Configuration-suffixed classes, but it has the equivalent —
+                         *AutoConfiguration classes (pure @Bean wiring) and *Properties records
+                         (@ConfigurationProperties data holders with no logic). -->
+                    <excludes>
+                        <exclude>**/*AutoConfiguration.class</exclude>
+                        <exclude>**/*Properties.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${coverage.line.min}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Bug + security analysis (KAN-168): SpotBugs over the compiled bytecode, with the
+                 FindSecBugs plugin for security detectors. Fails the build on medium+ findings.
+                 Same configuration as the service standard — this module owns JWT verification and
+                 RLS tenant binding, so it is held to the same bar, not a lower one. -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs.plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Medium</threshold>
+                    <includeTests>false</includeTests>
+                    <excludeFilterFile>${project.basedir}/config/spotbugs-exclude.xml</excludeFilterFile>
+                    <plugins>
+                        <plugin>
+                            <groupId>com.h3xstream.findsecbugs</groupId>
+                            <artifactId>findsecbugs-plugin</artifactId>
+                            <version>${findsecbugs.version}</version>
+                        </plugin>
+                    </plugins>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Static rules (KAN-168): the same curated, low-noise PMD ruleset as the service
+                 standard (config/pmd-ruleset.xml, copied verbatim). Fails the build on violations. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>${pmd.plugin.version}</version>
+                <configuration>
+                    <targetJdk>${java.version}</targetJdk>
+                    <printFailingErrors>true</printFailingErrors>
+                    <rulesets>
+                        <ruleset>${project.basedir}/config/pmd-ruleset.xml</ruleset>
+                    </rulesets>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
         <testSourceDirectory>src/test/groovy</testSourceDirectory>
