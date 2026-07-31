@@ -1,0 +1,18 @@
+# Free dependency + Action vulnerability alerts and version bumps (KAN-168, matching the pattern
+# already applied across the estate under KAN-64/KAN-174). GitHub-native, works on private repos
+# at no cost. Security updates are raised automatically; these blocks add scheduled version-bump
+# PRs too.
+version: 2
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "ci"]

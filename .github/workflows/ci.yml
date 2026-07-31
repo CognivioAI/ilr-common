@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# ilr-common is the highest-blast-radius component in the estate: it owns JWT verification,
+# tenant isolation, and the SnapStart CRaC hook that every one of the 16 consuming services
+# builds on. Its own CI must actually run its own tests, independent of what any consumer's
+# `-DskipTests` install step does (KAN-168). Least-privilege token + a concurrency guard + a
+# runner-time cap, none of which exist anywhere else in the estate yet (KAN-176 tracks rolling
+# this out estate-wide) — this new workflow starts clean rather than repeating that gap.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & Test (JDK 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      # Runs whatever surefire (unit) and failsafe (integration) tests exist on this ref.
+      # `verify` also binds jacoco:check, spotbugs:check and pmd:check (see pom.xml) so
+      # coverage/static-analysis regressions fail the build here, not just in consumers.
+      - name: Build and test
+        run: mvn -B -ntp verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/**'
+          if-no-files-found: ignore
