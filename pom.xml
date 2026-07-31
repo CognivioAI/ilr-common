@@ -207,6 +207,25 @@
             <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          KAN-189: proves FORCE ROW LEVEL SECURITY + a non-owner runtime role actually defend
+          against a cross-tenant read when the application layer never binds a tenant (the exact
+          failure mode RlsTenantBindingAspect's javadoc calls out as previously untested). Real
+          PostgreSQL only, via Testcontainers — RLS/owner-bypass semantics cannot be exercised
+          against a mocked Connection or an in-memory database. Versions come from
+          spring-boot-starter-parent's dependency management.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
