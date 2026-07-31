@@ -60,7 +60,7 @@
         <coverage.line.min>0.75</coverage.line.min>
         <spotbugs.plugin.version>4.8.6.4</spotbugs.plugin.version>
         <findsecbugs.version>1.13.0</findsecbugs.version>
-        <pmd.plugin.version>3.26.0</pmd.plugin.version>
+        <pmd.plugin.version>3.28.0</pmd.plugin.version>
     </properties>
 
     <dependencies>
