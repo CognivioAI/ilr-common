@@ -80,6 +80,9 @@ public class IlrSecurityProperties {
             "/swagger-ui/**",
             "/swagger-ui.html");
 
+    /** Method-security (capability gate) settings. See {@link MethodSecurity}. */
+    private final MethodSecurity methodSecurity = new MethodSecurity();
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -166,5 +169,34 @@ public class IlrSecurityProperties {
 
     public void setPermitList(List<String> permitList) {
         this.permitList = permitList;
+    }
+
+    public MethodSecurity getMethodSecurity() {
+        return methodSecurity;
+    }
+
+    /**
+     * Method-security (@PreAuthorize) settings. Deliberately <b>not</b> under
+     * {@link #enabled}: the estate's tests all run with {@code ilr.security.enabled=false},
+     * so tying the two together would disable every authorization gate in exactly the
+     * configuration meant to prove the gates work. See
+     * {@code com.cognivio.ai.common.authz.IlrMethodSecurityAutoConfiguration}.
+     */
+    public static class MethodSecurity {
+
+        /**
+         * Enables {@code @EnableMethodSecurity} and the {@code ilrAuth} bean. Default
+         * {@code true}. Inert until endpoints carry {@code @PreAuthorize}. Setting this
+         * to {@code false} disables every capability gate in the service.
+         */
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
     }
 }
