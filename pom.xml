@@ -35,6 +35,7 @@
         <java.version>21</java.version>
         <groovy.version>4.0.22</groovy.version>
         <spock.version>2.3-groovy-4.0</spock.version>
+        <archunit.version>1.3.0</archunit.version>
     </properties>
 
     <dependencies>
@@ -192,6 +193,20 @@
             <version>${spock.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          ArchUnit backs the shared "every mapped controller method must declare an
+          authorization decision" fitness function (KAN-206). It is `test` scope here and
+          therefore NOT transitive: a consuming service that uses the shared rule from the
+          test-jar must declare its own test-scoped archunit dependency. That is intentional
+          — a library must not push a test framework onto every consumer's runtime.
+        -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -224,6 +239,35 @@
                         </testSource>
                     </testSources>
                 </configuration>
+            </plugin>
+
+            <!--
+              Publishes src/test/groovy's compiled output as a `tests`-classifier jar so the 16
+              consuming services can reuse two shared test artifacts rather than reinventing them
+              15 times (KAN-206):
+
+                * ControllerAuthorizationRules — the ArchUnit fitness function that fails a build
+                  when a mapped controller method declares no authorization decision.
+                * IlrMethodSecurityTestSupport — a MockMvc harness that actually applies
+                  @PreAuthorize. The estate's existing MockMvcBuilders.standaloneSetup(...) specs
+                  build no Spring context and create no proxy, so method security is never applied
+                  in them at all: without this harness a "403 for the wrong role" spec would pass
+                  whether or not the annotation is there.
+
+              Consumers add:  <classifier>tests</classifier> <scope>test</scope>
+              plus their own test-scoped archunit dependency (see the dependency comment above).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>test-jar</id>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>
