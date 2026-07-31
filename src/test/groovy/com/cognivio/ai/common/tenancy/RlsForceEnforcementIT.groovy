@@ -28,8 +28,15 @@ import java.sql.Statement
  * <p>{@code cases} carries the fixed shape (ENABLE + FORCE + non-owner role). {@code cases_pre_fix}
  * reproduces the estate's state <em>before</em> KAN-189 (ENABLE only, same owner role for
  * everything) so the regression this ticket fixes is pinned by an assertion, not just described.
+ *
+ * <p><b>Renamed from {@code RlsForceEnforcementSpec} by KAN-222.</b> It needs Docker, so leaving it
+ * as a {@code *Spec} under surefire would have kept {@code mvn test} Docker-dependent — which is the
+ * whole justification for KAN-222 putting integration tests behind maven-failsafe at {@code verify}.
+ * The body is otherwise unchanged. It deliberately keeps its own per-spec container rather than
+ * using {@code IlrPostgresContainer}, because it builds a synthetic pre-fix schema that must not be
+ * visible to any other test.
  */
-class RlsForceEnforcementSpec extends Specification {
+class RlsForceEnforcementIT extends Specification {
 
     private static final String TENANT_A = "11111111-1111-1111-1111-111111111111"
     private static final String TENANT_B = "22222222-2222-2222-2222-222222222222"

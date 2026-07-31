@@ -301,6 +301,37 @@
                     <useFile>false</useFile>
                 </configuration>
             </plugin>
+
+            <!--
+              KAN-222: integration tests are `*IT`, run by failsafe at integration-test/verify —
+              deliberately NOT `*Spec` under surefire (which the includes above scope to unit tests
+              only, so the split needs no exclude here).
+
+              Three reasons, per the KAN-190 design:
+                1. `mvn test` stays Docker-free. A developer without a Docker daemon keeps a green
+                   `mvn test`; only `mvn verify` needs one.
+                2. CI gets a distinct signal for "integration broke" vs "unit broke".
+                3. Every ci.yml across the estate already runs `mvn -B -ntp verify`, so binding here
+                   means the KAN-190 rollout needs ZERO edits to 26 copied workflow files.
+
+              No <executions> block is needed: spring-boot-starter-parent's pluginManagement already
+              binds failsafe's integration-test and verify goals. Declaring our own execution created
+              a SECOND, duplicate one, which failsafe skipped with the misleading message
+              "Skipping execution of surefire because it has already been run for this configuration".
+              Only the `includes` differ from the parent's defaults, because Groovy-compiled specs
+              produce .class files with no matching .java source.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                        <include>**/*IT.class</include>
+                    </includes>
+                    <useFile>false</useFile>
+                </configuration>
+            </plugin>
         </plugins>
         <testSourceDirectory>src/test/groovy</testSourceDirectory>
     </build>

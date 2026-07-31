@@ -61,13 +61,38 @@ The `JwtDecoder` is resolved via an `ObjectProvider`, so a test can register its
 bean (e.g. a Nimbus decoder over a local RSA test key) and the resource server will use it — no live
 Cognito JWKS endpoint required.
 
+### Integration test harness (KAN-222)
+
+The `tests`-classifier jar ships a reusable harness in
+`com.cognivio.ai.common.testsupport.integration` for services that need a **real** Spring context on
+a **real** PostgreSQL with the **real** security filter chain:
+
+| Class | Purpose |
+|-------|---------|
+| `IlrPostgresContainer` | Singleton `postgres:16-alpine` container, started once per JVM |
+| `IlrDatabaseRoles` | Creates the `ilr_owner` (Flyway) / `ilr_app` (application) role split the `V3__force_rls_and_app_role.sql` migrations expect, and asserts tests are not connected as a superuser |
+| `AbstractIlrIntegrationSpec` | `@SpringBootTest` base that forces `ilr.security.enabled`, `ilr.security.method-security.enabled` and `ilr.rls.enabled` on, and `ilr.security.dev-permit-all` off |
+| `IlrSecurityTestConfiguration` | Registers `TestJwtFactory`'s decoder as the `JwtDecoder` bean, so the production chain is exercised unchanged |
+| `IlrBearerTokens` / `bearerFor(...)` | MockMvc `RequestPostProcessor` for a signed token with a given role/tenant/user |
+
+Extend `AbstractIlrIntegrationSpec`, name the class `*IT`, and add maven-failsafe (see this module's
+pom) plus test-scoped `org.testcontainers:postgresql`, `org.postgresql:postgresql` and
+`spring-security-test` — this module's test dependencies are not transitive. Full instructions,
+including why the role split and the forced properties are not optional, are in
+`AbstractIlrIntegrationSpec`'s and `IlrDatabaseRoles`' javadoc.
+
 ## Build
 
 ```bash
 mvn clean install   # JDK 21; installs 0.1.0-SNAPSHOT to your local ~/.m2
 ```
 
-Tests are Spock (Groovy) specs under `src/test/groovy`, matching the services' convention.
+Tests are Spock (Groovy) specs under `src/test/groovy`, matching the services' convention. They split
+in two:
+
+* `*Spec` — unit tests, run by surefire at `test`. **No Docker required.**
+* `*IT` — integration tests, run by maven-failsafe at `integration-test`/`verify`. **Docker
+  required.** `mvn verify` runs both; `mvn test` runs only the first.
 
 > **CI note:** consuming services build against this SNAPSHOT. For CI (which has no shared local
 > `~/.m2`), publish the artifact to a reachable Maven repository — AWS CodeArtifact or Nexus — and
