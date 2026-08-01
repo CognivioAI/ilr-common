@@ -23,6 +23,25 @@ import java.util.Set;
  *   <li><b>{@link IlrPermission#CASE_SIGNOFF} is held by the adviser roles only.</b>
  *       Sign-off is the IAA 1999 s84 control; an applicant signing off their own case
  *       is precisely the finding KAN-186 raised.</li>
+ *   <li><b>{@link IlrPermission#DOCUMENT_PURGE_REQUEST} is held by {@code APPLICANT},
+ *       {@code CONSULTANT} and {@code FIRM_ADMIN} (corrected by KAN-210).</b>
+ *       {@code ilr-document-service}'s {@code PurgeService.requestPurge} is
+ *       documented "US-019 / BR-010 <em>user-initiated</em> document purge" and
+ *       applies no role check of its own — the caller is simply the case's owner or
+ *       the firm staff acting for them. The original table granted this to
+ *       {@code FIRM_ADMIN} alone, which would have 403'd the applicant the feature
+ *       exists for.</li>
+ *   <li><b>{@link IlrPermission#DOCUMENT_PURGE_CONSENT} is held by {@code CONSULTANT}
+ *       only (corrected by KAN-210).</b> {@code PurgeService.decideConsent} has its
+ *       own L2 check — {@code request.getConsultantUserId().equals(actingUserId)} —
+ *       so only the case's <em>assigned</em> consultant may approve or decline,
+ *       never the applicant. The original table granted the L1 capability to
+ *       {@code APPLICANT}, which would have denied the one caller the flow is built
+ *       for at the gate, before the L2 check ever ran. {@code FIRM_ADMIN} is
+ *       deliberately excluded too: the L2 check is an exact
+ *       assigned-consultant-identity match, so granting a firm admin the L1
+ *       capability would be a no-op grant that only invites confusion about who can
+ *       actually decide.</li>
  *   <li><b>{@link IlrPermission#AUDIT_WRITE} and {@link IlrPermission#REMINDER_DISPATCH}
  *       are granted to no role at all.</b> Both endpoints look like inter-service
  *       callers rather than humans, and whether they carry a client-credentials token
@@ -65,13 +84,18 @@ public final class RolePermissions {
                 IlrPermission.TRANSCRIPT_READ_ANY));
 
         // The regulated adviser: everything needed to advance a case, including the
-        // s84 sign-off itself.
+        // s84 sign-off itself, plus the assigned-consultant consent decision on a
+        // client's purge request (KAN-210 — the L2 assigned-consultant check in
+        // PurgeService.decideConsent narrows this from "any consultant" to "this
+        // case's consultant").
         policy.put(IlrRole.CONSULTANT, unmodifiable(
                 IlrPermission.CASE_SIGNOFF,
                 IlrPermission.CASE_IMPORT,
                 IlrPermission.REVIEW_ENQUEUE,
                 IlrPermission.EXTRACTION_CONFIRM,
-                IlrPermission.TRANSCRIPT_READ_ANY));
+                IlrPermission.TRANSCRIPT_READ_ANY,
+                IlrPermission.DOCUMENT_PURGE_REQUEST,
+                IlrPermission.DOCUMENT_PURGE_CONSENT));
 
         // Works the review queue and nothing else.
         policy.put(IlrRole.REVIEWER, unmodifiable(
@@ -79,12 +103,14 @@ public final class RolePermissions {
                 IlrPermission.REVIEW_CLAIM,
                 IlrPermission.REVIEW_DECIDE));
 
-        // The data subject. Holds no firm-level capability; the only thing they may do
-        // that needs a capability gate is consent to destruction of their own documents.
-        // Everything else an applicant legitimately does is their own record, which is
-        // an L2 ownership check, not an L1 capability.
+        // The data subject. Holds no firm-level capability. Requesting purge of their
+        // own case's documents is the one L1 capability an applicant needs (KAN-210) —
+        // everything else an applicant legitimately does is their own record, which is
+        // an L2 ownership check, not an L1 capability. NOT DOCUMENT_PURGE_CONSENT: that
+        // decision belongs to the case's assigned consultant, never the applicant (see
+        // class javadoc).
         policy.put(IlrRole.APPLICANT, unmodifiable(
-                IlrPermission.DOCUMENT_PURGE_CONSENT));
+                IlrPermission.DOCUMENT_PURGE_REQUEST));
 
         return Map.copyOf(policy);
     }
