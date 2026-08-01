@@ -1,6 +1,7 @@
 package com.cognivio.ai.common.authz;
 
 import com.cognivio.ai.common.context.TenantContext;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -74,13 +75,25 @@ public class IlrAuthorization {
         return hasPermission(permission);
     }
 
-    /** Typed equivalent of {@link #can(String)} for Java callers. */
+    /**
+     * Typed equivalent of {@link #can(String)} for Java callers. Grants if the caller's roles hold
+     * the permission (the human path) OR any of the caller's OAuth2 scopes resolves, via
+     * {@link IlrPermission#fromScope(String)}, to it (the KAN-211 service-caller path — a
+     * client-credentials token carries scopes, typically no roles at all). Either is sufficient; a
+     * caller need not have both.
+     */
     public boolean hasPermission(IlrPermission permission) {
         TenantContext context = currentContext();
         if (context == null) {
             return false;
         }
-        return RolePermissions.grantsAny(context.getRoles(), permission);
+        if (RolePermissions.grantsAny(context.getRoles(), permission)) {
+            return true;
+        }
+        return context.getScopes().stream()
+                .map(IlrPermission::fromScope)
+                .flatMap(Optional::stream)
+                .anyMatch(permission::equals);
     }
 
     /**

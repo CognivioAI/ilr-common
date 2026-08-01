@@ -109,7 +109,33 @@ public enum IlrPermission {
         return Optional.ofNullable(BY_NORMALISED_NAME.get(normalised));
     }
 
+    /**
+     * Resolves a permission from a raw OAuth2 scope value carried on a client-credentials token
+     * (KAN-211), e.g. {@code "ilr-audit/audit-write"} or plain {@code "audit-write"}. Any
+     * {@code resourceServerIdentifier/} prefix — the text up to and including the last {@code /} — is
+     * stripped first, then the remainder is resolved exactly as {@link #fromName(String)} would.
+     *
+     * @param rawScope a single scope token; may be {@code null} or blank
+     * @return the permission, or {@link Optional#empty()} for an unrecognised or unparseable scope —
+     *         callers must treat this as deny, never as a wildcard grant
+     */
+    public static Optional<IlrPermission> fromScope(String rawScope) {
+        if (rawScope == null) {
+            return Optional.empty();
+        }
+        String trimmed = rawScope.trim();
+        if (trimmed.isEmpty()) {
+            return Optional.empty();
+        }
+        int lastSlash = trimmed.lastIndexOf('/');
+        String withoutPrefix = lastSlash >= 0 ? trimmed.substring(lastSlash + 1) : trimmed;
+        return fromName(withoutPrefix);
+    }
+
     private static String normalise(String raw) {
-        return raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        return raw.trim().toUpperCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace('.', '_')
+                .replace(':', '_');
     }
 }

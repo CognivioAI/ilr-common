@@ -33,7 +33,7 @@ public class IlrTenantContextAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public JwtRoleConverter ilrJwtRoleConverter(IlrSecurityProperties properties) {
-        return new JwtRoleConverter(properties.getRoleClaims(), properties.getAuthorityPrefix());
+        return new JwtRoleConverter(properties.getRoleClaims(), properties.getAuthorityPrefix(), properties.getScopeClaim());
     }
 
     @Bean

@@ -21,6 +21,7 @@ public class TenantContext {
     private UUID firmId;
     private UUID userId;
     private Set<String> roles = Set.of();
+    private Set<String> scopes = Set.of();
 
     /** Tenant id (the firm id for firm users) from the verified {@code tenant_id} claim. */
     public UUID getTenantId() {
@@ -42,6 +43,15 @@ public class TenantContext {
         return roles;
     }
 
+    /**
+     * Scopes from the verified OAuth2 {@code scope} claim (KAN-211) — populated for a
+     * client-credentials service caller (e.g. audit-writer, reminder-dispatcher), empty for a human
+     * token that carries none.
+     */
+    public Set<String> getScopes() {
+        return scopes;
+    }
+
     /** True once a verified JWT identity has been bound to this request. */
     public boolean isPresent() {
         return tenantId != null;
@@ -52,12 +62,23 @@ public class TenantContext {
         return roles.contains(role);
     }
 
-    /** Populates the context from resolved, already-verified claim values. */
+    /** Populates the context from resolved, already-verified claim values. No scopes (see the overload). */
     public void populate(UUID tenantId, UUID firmId, UUID userId, Set<String> roles) {
+        populate(tenantId, firmId, userId, roles, Set.of());
+    }
+
+    /**
+     * Populates the context from resolved, already-verified claim values, including the caller's
+     * scopes (KAN-211). Added as an overload, rather than extending the four-argument
+     * {@link #populate(UUID, UUID, UUID, Set)}, so the many existing test fixtures across the estate
+     * that construct a role-only context keep compiling unchanged.
+     */
+    public void populate(UUID tenantId, UUID firmId, UUID userId, Set<String> roles, Set<String> scopes) {
         this.tenantId = tenantId;
         this.firmId = firmId != null ? firmId : tenantId;
         this.userId = userId;
         this.roles = roles != null ? Set.copyOf(roles) : Set.of();
+        this.scopes = scopes != null ? Set.copyOf(scopes) : Set.of();
     }
 
     /** Clears the context (used defensively; the request-scoped bean is normally discarded per request). */
@@ -66,5 +87,6 @@ public class TenantContext {
         this.firmId = null;
         this.userId = null;
         this.roles = Set.of();
+        this.scopes = Set.of();
     }
 }

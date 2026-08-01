@@ -46,4 +46,49 @@ class JwtRoleConverterSpec extends Specification {
         expect:
         converter.convert(jwt).isEmpty()
     }
+
+    def "extractScopes reads the single space-delimited OAuth2 scope claim (KAN-211)"() {
+        given:
+        def jwt = jwts.verifiedJwt([
+                sub  : UUID.randomUUID().toString(),
+                tenant_id: UUID.randomUUID().toString(),
+                scope: 'ilr-audit/audit-write ilr-audit/audit-read'
+        ])
+
+        expect:
+        converter.extractScopes(jwt) == ['ilr-audit/audit-write', 'ilr-audit/audit-read'] as Set
+    }
+
+    def "extractScopes is empty when the scope claim is absent"() {
+        given:
+        def jwt = jwts.verifiedJwt([sub: UUID.randomUUID().toString(), tenant_id: UUID.randomUUID().toString()])
+
+        expect:
+        converter.extractScopes(jwt).isEmpty()
+    }
+
+    def "extractScopes ignores a scope claim shaped as a JSON array, unlike role claims"() {
+        given: "RFC 6749/8693 fix the scope claim's shape to one delimited string, never an array"
+        def jwt = jwts.verifiedJwt([
+                sub  : UUID.randomUUID().toString(),
+                tenant_id: UUID.randomUUID().toString(),
+                scope: ['audit-write', 'audit-read']
+        ])
+
+        expect:
+        converter.extractScopes(jwt).isEmpty()
+    }
+
+    def "extractScopes honours a configurable scope claim name"() {
+        given:
+        def custom = new JwtRoleConverter(['cognito:groups'], 'ROLE_', 'custom:scope')
+        def jwt = jwts.verifiedJwt([
+                sub           : UUID.randomUUID().toString(),
+                tenant_id     : UUID.randomUUID().toString(),
+                'custom:scope': 'audit-write'
+        ])
+
+        expect:
+        custom.extractScopes(jwt) == ['audit-write'] as Set
+    }
 }

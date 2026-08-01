@@ -35,7 +35,8 @@ public class TenantClaimResolver {
         UUID firmId = optionalUuidClaim(jwt, properties.getFirmClaim());
         UUID userId = parseUuid(jwt.getSubject());
         Set<String> roles = roleConverter.extractRoles(jwt);
-        context.populate(tenantId, firmId, userId, roles);
+        Set<String> scopes = roleConverter.extractScopes(jwt);
+        context.populate(tenantId, firmId, userId, roles, scopes);
     }
 
     private UUID requiredUuidClaim(Jwt jwt, String claimName) {
