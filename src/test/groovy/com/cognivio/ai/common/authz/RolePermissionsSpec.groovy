@@ -26,7 +26,11 @@ class RolePermissionsSpec extends Specification {
         IlrRole.FIRM_ADMIN  | IlrPermission.PAYMENT_RECONCILE
         IlrRole.REVIEWER    | IlrPermission.REVIEW_CLAIM
         IlrRole.REVIEWER    | IlrPermission.REVIEW_DECIDE
-        IlrRole.APPLICANT   | IlrPermission.DOCUMENT_PURGE_CONSENT
+        // KAN-210: purge is user-initiated (applicant or consultant); consent is
+        // decided by the assigned consultant only — see RolePermissions javadoc.
+        IlrRole.APPLICANT   | IlrPermission.DOCUMENT_PURGE_REQUEST
+        IlrRole.CONSULTANT  | IlrPermission.DOCUMENT_PURGE_REQUEST
+        IlrRole.CONSULTANT  | IlrPermission.DOCUMENT_PURGE_CONSENT
     }
 
     @Unroll
@@ -56,6 +60,11 @@ class RolePermissionsSpec extends Specification {
         IlrRole.CONSULTANT  | IlrPermission.FIRM_SETTINGS_WRITE
         IlrRole.CONSULTANT  | IlrPermission.USER_ERASURE_REQUEST
         IlrRole.CONSULTANT  | IlrPermission.REVIEW_DECIDE
+        // KAN-210: an applicant is never the assigned consultant, so never holds the
+        // consent decision; firm admin holding it would be a no-op grant against the
+        // decideConsent L2 identity check, so it is deliberately excluded too.
+        IlrRole.APPLICANT   | IlrPermission.DOCUMENT_PURGE_CONSENT
+        IlrRole.FIRM_ADMIN  | IlrPermission.DOCUMENT_PURGE_CONSENT
     }
 
     @Unroll
