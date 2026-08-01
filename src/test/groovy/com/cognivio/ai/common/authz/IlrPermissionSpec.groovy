@@ -33,6 +33,36 @@ class IlrPermissionSpec extends Specification {
         raw << [null, "", "   ", "CASE_SIGNOF", "case signoff", "SIGNOFF", "hasRole('reviewer')"]
     }
 
+    @Unroll
+    def "fromScope('#raw') resolves to #expected (KAN-211)"() {
+        expect:
+        IlrPermission.fromScope(raw).orElse(null) == expected
+
+        where:
+        raw                                | expected
+        "ilr-audit/audit-write"            | IlrPermission.AUDIT_WRITE
+        "audit-write"                      | IlrPermission.AUDIT_WRITE
+        "AUDIT_WRITE"                      | IlrPermission.AUDIT_WRITE
+        "https://api/ilr-audit/audit-write"| IlrPermission.AUDIT_WRITE
+        "ilr-audit/audit.write"            | IlrPermission.AUDIT_WRITE
+        "ilr-audit/audit:write"            | IlrPermission.AUDIT_WRITE
+    }
+
+    @Unroll
+    def "fromScope('#raw') resolves to nothing, so the caller must deny"() {
+        expect:
+        IlrPermission.fromScope(raw).isEmpty()
+
+        where:
+        raw << [null, "", "   ", "ilr-audit/", "ilr-audit/not-a-real-permission", "openid"]
+    }
+
+    def "normalise also folds '.' and ':' to '_', not just '-'"() {
+        expect:
+        IlrPermission.fromName("audit.write").get() == IlrPermission.AUDIT_WRITE
+        IlrPermission.fromName("audit:write").get() == IlrPermission.AUDIT_WRITE
+    }
+
     def "the permissions named by the architecture design are all present"() {
         given:
         def required = [

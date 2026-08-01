@@ -23,15 +23,20 @@ import java.util.Set;
  *   <li><b>{@link IlrPermission#CASE_SIGNOFF} is held by the adviser roles only.</b>
  *       Sign-off is the IAA 1999 s84 control; an applicant signing off their own case
  *       is precisely the finding KAN-186 raised.</li>
- *   <li><b>{@link IlrPermission#AUDIT_WRITE} and {@link IlrPermission#REMINDER_DISPATCH}
- *       are granted to no role at all.</b> Both endpoints look like inter-service
- *       callers rather than humans, and whether they carry a client-credentials token
- *       (gated on {@code scope}) or a human Cognito token (gated on
- *       {@code cognito:groups}) is the blocking open question recorded on KAN-186.
- *       Until that is answered the fail-closed choice is an empty grant, which is
- *       inert while no endpoint is annotated and denies rather than over-grants once
- *       one is. <b>KAN-211 (ilr-audit) must not be annotated until that question is
- *       resolved and this mapping updated.</b></li>
+ *   <li><b>{@link IlrPermission#AUDIT_WRITE} is granted to no {@link IlrRole} at all — resolved by
+ *       KAN-211.</b> The caller is an inter-service client-credentials token (audit-writer et al.),
+ *       never a human, so the grant lives entirely on the scope path: {@link IlrPermission#fromScope}
+ *       plus {@code IlrAuthorization.hasPermission}, not this role-keyed table. An empty entry here
+ *       is therefore correct and permanent, not a placeholder — a role ever appearing against
+ *       {@code AUDIT_WRITE} would mean a human caller can write the audit trail directly, which
+ *       BR-009 does not intend.</li>
+ *   <li><b>{@link IlrPermission#REMINDER_DISPATCH} is granted to no role at all.</b> This endpoint
+ *       looks like an inter-service caller rather than a human, and whether it carries a
+ *       client-credentials token (gated on {@code scope}, the same mechanism KAN-211 resolved for
+ *       {@code AUDIT_WRITE}) or a human Cognito token (gated on {@code cognito:groups}) is the
+ *       blocking open question recorded on KAN-186 for this permission specifically. Until that is
+ *       answered the fail-closed choice is an empty grant, which is inert while no endpoint is
+ *       annotated and denies rather than over-grants once one is.</li>
  *   <li><b>The mapping itself has not been signed off by the architect.</b> KAN-186's
  *       design specifies that this class exists and what shape it takes, but not its
  *       contents. It is stated here so it can be reviewed as a diff in one file; the

@@ -93,6 +93,40 @@ class TenantClaimResolverSpec extends Specification {
         thrown(MissingTenantClaimException)
     }
 
+    def "populates scopes from the verified OAuth2 scope claim (KAN-211)"() {
+        given: "a service-credential-shaped token: scopes, no cognito:groups"
+        def tenant = UUID.randomUUID()
+        def jwt = jwts.verifiedJwt([
+                sub  : UUID.randomUUID().toString(),
+                tenant_id: tenant.toString(),
+                scope: 'ilr-audit/audit-write'
+        ])
+        def ctx = new TenantContext()
+
+        when:
+        resolver.resolveInto(jwt, ctx)
+
+        then:
+        ctx.scopes == ['ilr-audit/audit-write'] as Set
+        ctx.roles.isEmpty()
+    }
+
+    def "scopes are empty when the token carries none, e.g. a human token"() {
+        given:
+        def jwt = jwts.verifiedJwt([
+                sub          : UUID.randomUUID().toString(),
+                tenant_id    : UUID.randomUUID().toString(),
+                'cognito:groups': ['consultant']
+        ])
+        def ctx = new TenantContext()
+
+        when:
+        resolver.resolveInto(jwt, ctx)
+
+        then:
+        ctx.scopes.isEmpty()
+    }
+
     def "honours a configurable tenant claim name"() {
         given:
         props.tenantClaim = 'custom:tenant'

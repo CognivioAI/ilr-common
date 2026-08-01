@@ -153,6 +153,59 @@ class IlrAuthorizationSpec extends Specification {
                 IlrPermission.REVIEW_DECIDE] as Set
     }
 
+    // -------------------------------------------------------------------------------------------
+    // KAN-211: scope-based grants (client-credentials service callers), alongside the existing
+    // role-based path. Either is sufficient; a caller need not have both.
+    // -------------------------------------------------------------------------------------------
+
+    def "grants a permission via a matching scope, with no matching role (a service caller)"() {
+        given: "a service-credential-shaped context: scopes, no roles"
+        context.populate(UUID.randomUUID(), null, UUID.randomUUID(), [] as Set,
+                ["ilr-audit/audit-write"] as Set)
+
+        expect:
+        authorization.can("AUDIT_WRITE")
+        authorization.hasPermission(IlrPermission.AUDIT_WRITE)
+    }
+
+    def "a scope that doesn't match any IlrPermission denies"() {
+        given:
+        context.populate(UUID.randomUUID(), null, UUID.randomUUID(), [] as Set,
+                ["openid", "ilr-audit/not-a-real-permission"] as Set)
+
+        expect:
+        !authorization.can("AUDIT_WRITE")
+        !authorization.hasPermission(IlrPermission.AUDIT_WRITE)
+    }
+
+    def "a role-only context is unaffected by the scope path (regression)"() {
+        given: "no scopes at all, exactly as every existing caller before KAN-211"
+        context.populate(UUID.randomUUID(), null, UUID.randomUUID(), ["consultant"] as Set)
+
+        expect:
+        authorization.can("CASE_SIGNOFF")
+        !authorization.can("AUDIT_WRITE")
+    }
+
+    def "empty or absent scopes deny via the scope path, without throwing"() {
+        given: "populate() without scopes leaves them empty, not null"
+        context.populate(UUID.randomUUID(), null, UUID.randomUUID(), ["applicant"] as Set)
+
+        expect:
+        context.scopes.isEmpty()
+        !authorization.can("AUDIT_WRITE")
+        !authorization.hasPermission(IlrPermission.AUDIT_WRITE)
+    }
+
+    def "a caller holding both a role grant and an unrelated scope is granted via the role"() {
+        given:
+        context.populate(UUID.randomUUID(), null, UUID.randomUUID(), ["consultant"] as Set,
+                ["openid"] as Set)
+
+        expect:
+        authorization.can("CASE_SIGNOFF")
+    }
+
     @Unroll
     def "hasRole denies the unknown role '#role'"() {
         given:

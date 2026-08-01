@@ -71,6 +71,14 @@ public class IlrSecurityProperties {
     /** Authority prefix applied to each mapped role. Default {@code ROLE_}. */
     private String authorityPrefix = "ROLE_";
 
+    /**
+     * The claim carrying an OAuth2 client-credentials token's scope, e.g. for a service-to-service
+     * caller such as the audit writer or reminder dispatcher (KAN-211). Per RFC 6749 §3.3 / RFC 8693,
+     * this is always a single space-delimited string, never an array — unlike {@link #roleClaims},
+     * which tolerates either shape. Default {@code scope}.
+     */
+    private String scopeClaim = "scope";
+
     /** Ant-style paths that do NOT require authentication. */
     private List<String> permitList = List.of(
             "/actuator/health",
@@ -161,6 +169,14 @@ public class IlrSecurityProperties {
 
     public void setAuthorityPrefix(String authorityPrefix) {
         this.authorityPrefix = authorityPrefix;
+    }
+
+    public String getScopeClaim() {
+        return scopeClaim;
+    }
+
+    public void setScopeClaim(String scopeClaim) {
+        this.scopeClaim = scopeClaim;
     }
 
     public List<String> getPermitList() {
