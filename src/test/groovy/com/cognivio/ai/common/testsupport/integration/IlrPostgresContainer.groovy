@@ -99,6 +99,19 @@ final class IlrPostgresContainer {
         withRole(IlrDatabaseRoles.OWNER_ROLE, IlrDatabaseRoles.OWNER_PASSWORD, body)
     }
 
+    /**
+     * Runs {@code body} with a connection as the container's bootstrap <b>superuser</b> — the only
+     * role guaranteed to see every tenant's rows regardless of {@code FORCE ROW LEVEL SECURITY}
+     * (KAN-189). {@link #withOwnerRole} is exempt only until a service applies {@code FORCE} to a
+     * table (see {@code RlsForceEnforcementSpec} / {@code HarnessFalseAssuranceIT}); once it does,
+     * a spec's "read the true, cross-tenant state" ground-truth helper must switch to this method or
+     * it will silently observe zero rows instead of failing loudly. See {@link #superuserDataSource()}
+     * for why this must never be pointed at by {@code spring.datasource.username}.
+     */
+    static <T> T withSuperuserRole(Closure<T> body) {
+        superuserDataSource().connection.withCloseable { Connection c -> body.call(c) }
+    }
+
     private static PostgreSQLContainer<?> startWithRoles() {
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(DockerImageName.parse(IMAGE))
         container.start()
