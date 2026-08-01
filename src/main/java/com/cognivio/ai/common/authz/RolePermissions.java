@@ -56,6 +56,26 @@ import java.util.Set;
  *       blocking open question recorded on KAN-186 for this permission specifically. Until that is
  *       answered the fail-closed choice is an empty grant, which is inert while no endpoint is
  *       annotated and denies rather than over-grants once one is.</li>
+ *   <li><b>{@link IlrPermission#TRACKER_WRITE} is held by {@code CONSULTANT} and
+ *       {@code FIRM_ADMIN} only (KAN-212).</b> Logging a UKVI submission or updating
+ *       its tracking status in {@code ilr-tracking-service} is a firm-side act — there
+ *       is no UKVI API integration (A-04), so every tracker entry is manually logged
+ *       by firm staff. {@code APPLICANT} does not hold it.</li>
+ *   <li><b>{@link IlrPermission#PROCESSING_JOB_SUBMIT} is granted to no {@link IlrRole}
+ *       at all (KAN-212).</b> {@code ilr-ai-orchestrator-service}'s
+ *       {@code POST /processing-jobs} is called machine-to-machine, never a human, so
+ *       the grant lives entirely on the scope path: {@link IlrPermission#fromScope}
+ *       plus {@code IlrAuthorization.hasPermission}, not this role-keyed table. An
+ *       empty entry here is therefore correct and permanent, not a placeholder — a
+ *       role ever appearing against {@code PROCESSING_JOB_SUBMIT} would mean a human
+ *       caller can submit orchestrator jobs directly, which is not intended.</li>
+ *   <li><b>{@link IlrPermission#EXTRACTION_SUBMIT} is granted to no {@link IlrRole} at
+ *       all (KAN-212).</b> {@code ilr-ai-orchestrator-service}'s
+ *       {@code POST /cases/{caseId}/extractions} is chained from
+ *       {@code ilr-document-service} as production intake, never called directly by a
+ *       human, so the grant lives entirely on the scope path, the same mechanism as
+ *       {@code PROCESSING_JOB_SUBMIT} and {@code AUDIT_WRITE} above. An empty entry
+ *       here is correct and permanent, not a placeholder.</li>
  *   <li><b>The mapping itself has not been signed off by the architect.</b> KAN-186's
  *       design specifies that this class exists and what shape it takes, but not its
  *       contents. It is stated here so it can be reviewed as a diff in one file; the
@@ -86,7 +106,8 @@ public final class RolePermissions {
                 IlrPermission.CASE_SIGNOFF,
                 IlrPermission.REVIEW_ENQUEUE,
                 IlrPermission.EXTRACTION_CONFIRM,
-                IlrPermission.TRANSCRIPT_READ_ANY));
+                IlrPermission.TRANSCRIPT_READ_ANY,
+                IlrPermission.TRACKER_WRITE));
 
         // The regulated adviser: everything needed to advance a case, including the
         // s84 sign-off itself, plus the assigned-consultant consent decision on a
@@ -100,7 +121,8 @@ public final class RolePermissions {
                 IlrPermission.EXTRACTION_CONFIRM,
                 IlrPermission.TRANSCRIPT_READ_ANY,
                 IlrPermission.DOCUMENT_PURGE_REQUEST,
-                IlrPermission.DOCUMENT_PURGE_CONSENT));
+                IlrPermission.DOCUMENT_PURGE_CONSENT,
+                IlrPermission.TRACKER_WRITE));
 
         // Works the review queue and nothing else.
         policy.put(IlrRole.REVIEWER, unmodifiable(

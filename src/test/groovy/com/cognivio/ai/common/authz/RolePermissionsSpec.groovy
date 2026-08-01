@@ -31,6 +31,10 @@ class RolePermissionsSpec extends Specification {
         IlrRole.APPLICANT   | IlrPermission.DOCUMENT_PURGE_REQUEST
         IlrRole.CONSULTANT  | IlrPermission.DOCUMENT_PURGE_REQUEST
         IlrRole.CONSULTANT  | IlrPermission.DOCUMENT_PURGE_CONSENT
+        // KAN-212: TRACKER_WRITE is a firm-side act (manual logging, no UKVI API
+        // integration per A-04) — held by consultant and firm admin only.
+        IlrRole.CONSULTANT  | IlrPermission.TRACKER_WRITE
+        IlrRole.FIRM_ADMIN  | IlrPermission.TRACKER_WRITE
     }
 
     @Unroll
@@ -65,6 +69,10 @@ class RolePermissionsSpec extends Specification {
         // decideConsent L2 identity check, so it is deliberately excluded too.
         IlrRole.APPLICANT   | IlrPermission.DOCUMENT_PURGE_CONSENT
         IlrRole.FIRM_ADMIN  | IlrPermission.DOCUMENT_PURGE_CONSENT
+        // KAN-212: manual UKVI submission logging is a firm-side act, not an
+        // applicant one — see RolePermissions javadoc.
+        IlrRole.APPLICANT   | IlrPermission.TRACKER_WRITE
+        IlrRole.REVIEWER    | IlrPermission.TRACKER_WRITE
     }
 
     @Unroll
@@ -73,7 +81,8 @@ class RolePermissionsSpec extends Specification {
         RolePermissions.rolesGranting(permission).isEmpty()
 
         where:
-        permission << [IlrPermission.AUDIT_WRITE, IlrPermission.REMINDER_DISPATCH]
+        permission << [IlrPermission.AUDIT_WRITE, IlrPermission.REMINDER_DISPATCH,
+                       IlrPermission.PROCESSING_JOB_SUBMIT, IlrPermission.EXTRACTION_SUBMIT]
     }
 
     def "grantsAny tolerates the role-string forms that actually occur"() {

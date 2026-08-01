@@ -83,7 +83,27 @@ public enum IlrPermission {
      * hardcoded role literal; on its own this permission does not satisfy KAN-198,
      * which additionally needs the L2 ownership predicate.
      */
-    TRANSCRIPT_READ_ANY;
+    TRANSCRIPT_READ_ANY,
+
+    /**
+     * Log or update a UKVI submission's tracking status in {@code ilr-tracking-service}.
+     * A firm-side act, not an applicant one: there is no UKVI API integration (A-04), so
+     * every tracker entry is manually logged by the firm.
+     */
+    TRACKER_WRITE,
+
+    /**
+     * Submit a processing job to {@code ilr-ai-orchestrator-service}. Granted to no
+     * role — machine-to-machine only, see {@link RolePermissions}.
+     */
+    PROCESSING_JOB_SUBMIT,
+
+    /**
+     * Trigger AI field extraction over a case's documents in
+     * {@code ilr-ai-orchestrator-service}. Granted to no role — machine-to-machine
+     * only, see {@link RolePermissions}.
+     */
+    EXTRACTION_SUBMIT;
 
     private static final Map<String, IlrPermission> BY_NORMALISED_NAME = Stream.of(values())
             .collect(Collectors.toUnmodifiableMap(

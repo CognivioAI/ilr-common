@@ -73,7 +73,8 @@ class IlrPermissionSpec extends Specification {
                 "DOCUMENT_PURGE_REQUEST", "DOCUMENT_PURGE_CONSENT",
                 "AUDIT_WRITE", "PAYMENT_RECONCILE",
                 "EXTRACTION_CONFIRM", "REMINDER_DISPATCH",
-                "TRANSCRIPT_READ_ANY"]
+                "TRANSCRIPT_READ_ANY",
+                "TRACKER_WRITE", "PROCESSING_JOB_SUBMIT", "EXTRACTION_SUBMIT"]
 
         expect:
         required.every { IlrPermission.fromName(it).isPresent() }
