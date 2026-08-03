@@ -1,7 +1,11 @@
 # Free dependency + Action vulnerability alerts and version bumps (KAN-168, matching the pattern
 # already applied across the estate under KAN-64/KAN-174). GitHub-native, works on private repos
-# at no cost. Security updates are raised automatically; these blocks add scheduled version-bump
-# PRs too.
+# at no cost. Security updates are raised automatically regardless of the `ignore` rule below — it
+# only suppresses routine major-version bump PRs, not security PRs.
+#
+# KAN-173: grouped + majors ignored to keep the ~120-PR estate-wide backlog from recurring. A major
+# bump (Spring Boot 4, Groovy 5, etc.) is coordinated work across every service and belongs in its
+# own tracked epic, not a routine Dependabot PR.
 version: 2
 updates:
   - package-ecosystem: "maven"
@@ -10,9 +14,33 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     labels: ["dependencies"]
+    groups:
+      spring:
+        patterns:
+          - "org.springframework*"
+      test-and-quality:
+        patterns:
+          - "org.apache.groovy*"
+          - "org.spockframework*"
+          - "org.junit*"
+          - "org.mockito*"
+          - "org.jacoco*"
+          - "com.github.spotbugs*"
+          - "net.sourceforge.pmd*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
     labels: ["dependencies", "ci"]
+    groups:
+      actions:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
