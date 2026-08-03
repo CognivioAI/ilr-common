@@ -1,0 +1,108 @@
+name: Reusable Java Service CI
+
+# Shared build for the ~22 Java/Maven services in the CognivioAI/ilr-* estate
+# (KAN-177). Each service's own .github/workflows/ci.yml should shrink to a
+# short `uses: CognivioAI/ilr-common/.github/workflows/java-service-ci.yml@main`
+# call with `on: [push, pull_request]` triggers — this file owns the actual
+# steps so there is exactly one place to fix, not one-of-N.
+#
+# KAN-176 folded in here rather than as a separate pass: permissions,
+# concurrency, and timeout-minutes are set once, below, for every caller.
+
+on:
+  workflow_call:
+    inputs:
+      jdk-version:
+        description: "JDK version to build with"
+        type: string
+        default: "21"
+      checkout-ilr-common:
+        description: >
+          Whether this service depends on com.cognivio.ai:ilr-common:SNAPSHOT
+          and needs it checked out + installed to the local Maven repo before
+          `mvn verify`. Set to false for services with no ilr-common
+          dependency (e.g. ilr-api-gateway).
+        type: boolean
+        default: true
+      ilr-common-repo:
+        description: "org/repo to check out when checkout-ilr-common is true"
+        type: string
+        default: "CognivioAI/ilr-common"
+      ilr-common-ref:
+        description: "Git ref of ilr-common to build against"
+        type: string
+        default: "main"
+      working-directory:
+        description: "Directory to run the Maven build from, if the service's pom.xml isn't at repo root"
+        type: string
+        default: "."
+      maven-goal:
+        description: "Maven goal(s) to run for the build/test step"
+        type: string
+        default: "verify"
+    # No `secrets:` block on purpose. ilr-common is a PUBLIC repo, so the
+    # default GITHUB_TOKEN that Actions injects is sufficient to check it
+    # out — no PAT is required for this cross-repo checkout, and callers of
+    # this workflow do not need `secrets: inherit`. This is deliberate:
+    #
+    # An explicit `token: ${{ secrets.CI_PAT }}` here breaks CI whenever that
+    # org secret is absent/expired, since checkout then authenticates with
+    # an empty token. (Carried forward verbatim from ilr-eligibility-service's
+    # ci.yml, the one repo of 23 that had this warning written down before
+    # this workflow existed — see KAN-177.) Replace the checkout-ilr-common
+    # step with a registry (CodeArtifact/Nexus) pull once ilr-common is
+    # published there, and this whole caveat goes away.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & Test (JDK ${{ inputs.jdk-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ inputs.jdk-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.jdk-version }}
+          distribution: "temurin"
+          cache: maven
+
+      # See the no-secrets note above: this checkout intentionally uses the
+      # default GITHUB_TOKEN, never a PAT.
+      - name: Checkout ilr-common
+        if: ${{ inputs.checkout-ilr-common }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.ilr-common-repo }}
+          ref: ${{ inputs.ilr-common-ref }}
+          path: ilr-common
+
+      - name: Install ilr-common to local Maven repo
+        if: ${{ inputs.checkout-ilr-common }}
+        # Absolute path: checkout above always lands ilr-common/ at the
+        # workspace root regardless of `working-directory`, which only
+        # applies to the `run:` steps below.
+        run: mvn -B -ntp -f ${{ github.workspace }}/ilr-common/pom.xml install -DskipTests
+
+      - name: Build and test
+        run: mvn -B -ntp ${{ inputs.maven-goal }}
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: "**/target/surefire-reports/**"
+          if-no-files-found: ignore

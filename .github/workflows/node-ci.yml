@@ -1,0 +1,66 @@
+name: Reusable Node Service CI
+
+# Shared build for the Node/npm shape currently unique to ilr-ui (KAN-177).
+# Kept separate from java-service-ci.yml because the toolchain and steps
+# don't overlap; called as `uses: CognivioAI/ilr-common/.github/workflows/node-ci.yml@main`
+# so any future second Node/npm service has one place to call into instead
+# of copy-pasting a ci.yml again.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node version to build with"
+        type: string
+        default: "20"
+      working-directory:
+        description: "Directory to run npm from, if package.json isn't at repo root"
+        type: string
+        default: "."
+      install-command:
+        description: "Command used to install dependencies"
+        type: string
+        default: "npm ci"
+      build-command:
+        description: "Command used to typecheck/build"
+        type: string
+        default: "npm run build"
+      test-command:
+        description: "Command used to run tests"
+        type: string
+        default: "npm test"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & Test (Node ${{ inputs.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install
+        run: ${{ inputs.install-command }}
+
+      - name: Typecheck + build
+        run: ${{ inputs.build-command }}
+
+      - name: Test
+        run: ${{ inputs.test-command }}
