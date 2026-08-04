@@ -1,6 +1,7 @@
 package com.cognivio.ai.common.security;
 
 import com.cognivio.ai.common.context.IlrTenantContextAutoConfiguration;
+import com.cognivio.ai.common.context.TenantContextFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.StringUtils;
@@ -84,13 +86,23 @@ public class IlrSecurityAutoConfiguration {
             ObjectProvider<JwtDecoder> jwtDecoderProvider,
             JwtAuthenticationConverter jwtAuthenticationConverter,
             AuthenticationEntryPoint authenticationEntryPoint,
-            AccessDeniedHandler accessDeniedHandler) throws Exception {
+            AccessDeniedHandler accessDeniedHandler,
+            TenantContextFilter tenantContextFilter) throws Exception {
 
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
+
+        // KAN-229: the tenant context is populated INSIDE this chain, immediately after
+        // AuthorizationFilter — the last filter in the chain — so the verified Authentication is
+        // guaranteed to be in the SecurityContextHolder by the time it runs. It used to be an
+        // ordinary servlet filter ordered after the chain, which the AWS serverless adapter
+        // silently reorders (see IlrTenantContextAutoConfiguration for the full mechanism), leaving
+        // TenantContext empty on every Lambda request. Added before the three-way branch below so
+        // all three postures — verified JWT, dev-permit-all, fail-closed — get identical placement.
+        http.addFilterAfter(tenantContextFilter, AuthorizationFilter.class);
 
         JwtDecoder decoder = jwtDecoderProvider.getIfAvailable(() -> buildDecoder(properties));
         RequestMatcher[] permitMatchers = toPermitMatchers(properties.getPermitList());

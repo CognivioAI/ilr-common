@@ -369,10 +369,14 @@
                             <excludes>
                                 <exclude>com/cognivio/ai/common/testsupport/selftest/**</exclude>
                                 <exclude>db/harness/**</exclude>
-                                <!-- KAN-226: a class that deliberately calls requestMatchers(String...)
-                                     so the ArchUnit rule forbidding it can be proved to fire. Useful
-                                     only inside this module; shipping it would put the very call site
-                                     the estate forbids onto every consumer's test classpath. -->
+                                <!-- KAN-226 / KAN-229: classes that deliberately contain the exact
+                                     call sites the ArchUnit rules in security/testsupport forbid
+                                     (requestMatchers(String...) for KAN-226, the out-of-chain filter
+                                     ordering for KAN-229), so those rules can be proved to fire.
+                                     Useful only inside this module; shipping them would put the very
+                                     call sites the estate forbids onto every consumer's test
+                                     classpath, where the consumer's own copy of the rule would then
+                                     flag them. -->
                                 <exclude>com/cognivio/ai/common/security/violationfixture/**</exclude>
                             </excludes>
                         </configuration>
