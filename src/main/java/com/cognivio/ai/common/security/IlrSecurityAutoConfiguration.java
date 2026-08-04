@@ -2,6 +2,7 @@ package com.cognivio.ai.common.security;
 
 import com.cognivio.ai.common.context.IlrTenantContextAutoConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -22,7 +23,10 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.StringUtils;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * OAuth2 resource-server security for every ILR service. Verifies the incoming
@@ -89,11 +93,11 @@ public class IlrSecurityAutoConfiguration {
                         .accessDeniedHandler(accessDeniedHandler));
 
         JwtDecoder decoder = jwtDecoderProvider.getIfAvailable(() -> buildDecoder(properties));
-        String[] permitList = properties.getPermitList().toArray(String[]::new);
+        RequestMatcher[] permitMatchers = toPermitMatchers(properties.getPermitList());
 
         if (decoder != null) {
             http.authorizeHttpRequests(auth -> auth
-                            .requestMatchers(permitList).permitAll()
+                            .requestMatchers(permitMatchers).permitAll()
                             .anyRequest().authenticated())
                     .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt
                             .decoder(decoder)
@@ -117,6 +121,47 @@ public class IlrSecurityAutoConfiguration {
                             + "ilr.security.dev-permit-all=true for local development.");
         }
         return http.build();
+    }
+
+    /**
+     * Builds the permit-list matchers explicitly. <b>Never call
+     * {@code requestMatchers(String...)} anywhere in this estate</b> (KAN-226).
+     *
+     * <p>Two independent reasons, both of which produce a broken deployment rather than a
+     * compile error, which is why the construction is isolated here:
+     *
+     * <ol>
+     *   <li><b>The String overload NPEs under the serverless adapter.</b> It defers to
+     *       {@code AbstractRequestMatcherRegistry.resolve()}, which calls
+     *       {@code ServletRegistration.getMappings()} on the {@code ServletContext} to decide
+     *       between MVC and Ant matching. The synthetic {@code ServletContext} of
+     *       {@code aws-serverless-java-container} returns {@code null} there (an unimplemented
+     *       upstream stub, not a version-bump fix), so every request 500s with an NPE inside
+     *       Spring Security. That is the whole of KAN-226.</li>
+     *   <li><b>The {@link UrlPathHelper} argument is load-bearing.</b> Without it,
+     *       {@link AntPathRequestMatcher} matches on {@code servletPath + pathInfo}. The
+     *       adapter's {@code ServerlessHttpServletRequest} hard-codes {@code servletPath = ""}
+     *       and never populates it, so the permit list would silently match nothing and
+     *       {@code /actuator/health} would 401 instead of bypassing authentication — a
+     *       quieter, worse failure than the NPE. With the helper, matching uses
+     *       {@code requestURI - contextPath}, which is correct in a real servlet container
+     *       <em>and</em> under the adapter.</li>
+     * </ol>
+     *
+     * <p>{@link AntPathRequestMatcher} is deprecated in Spring Security 6.5 and removed in 7.0;
+     * keeping every construction in this one method is what makes the eventual migration to
+     * {@code PathPatternRequestMatcher} a single-method change.
+     *
+     * <p>Package-private rather than private so
+     * {@code IlrSecurityAutoConfigurationSpec} can assert the real production matchers against
+     * both request shapes; the test exists precisely because both failure modes above are
+     * invisible to the compiler.
+     */
+    static RequestMatcher[] toPermitMatchers(List<String> patterns) {
+        UrlPathHelper pathHelper = new UrlPathHelper();
+        return patterns.stream()
+                .map(pattern -> (RequestMatcher) new AntPathRequestMatcher(pattern, null, true, pathHelper))
+                .toArray(RequestMatcher[]::new);
     }
 
     /** Builds a Nimbus decoder from jwks-uri (preferred) or issuer-uri; {@code null} if neither is set. */
