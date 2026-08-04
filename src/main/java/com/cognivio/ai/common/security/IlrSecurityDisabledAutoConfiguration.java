@@ -30,6 +30,17 @@ public class IlrSecurityDisabledAutoConfiguration {
     @ConditionalOnMissingBean(name = "ilrSecurityFilterChain")
     public SecurityFilterChain ilrSecurityFilterChain(
             HttpSecurity http, ObjectProvider<TenantContextFilter> tenantContextFilter) throws Exception {
+        // KAN-229: this chain deliberately does NOT call .sessionManagement(...). Do not "harmonize"
+        // it with IlrSecurityAutoConfiguration by adding sessionCreationPolicy(STATELESS) here —
+        // that is what would INTRODUCE the bug, not prevent it. Without a sessionManagement() call
+        // no SessionManagementConfigurer is applied, so no SessionManagementFilter and no
+        // session-fixation strategy exist in this chain at all. Adding the policy would install
+        // both, and the default strategy (ChangeSessionIdAuthenticationStrategy — the policy does
+        // not suppress it, see the comment in IlrSecurityAutoConfiguration) calls
+        // request.changeSessionId(), an unimplemented stub that throws under the AWS serverless
+        // adapter. If a session policy is ever genuinely needed here, it must be paired with
+        // .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()) exactly as the
+        // secured chain does.
         http.csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
 

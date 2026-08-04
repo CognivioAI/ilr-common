@@ -25,6 +25,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.StringUtils;
@@ -90,7 +91,28 @@ public class IlrSecurityAutoConfiguration {
             TenantContextFilter tenantContextFilter) throws Exception {
 
         http.csrf(AbstractHttpConfigurer::disable)
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // KAN-229: the session-authentication strategy MUST be set explicitly.
+                // SessionCreationPolicy.STATELESS alone does NOT suppress Spring Security's default
+                // session-fixation strategy: SessionManagementConfigurer.isStateless() only decides
+                // which SecurityContextRepository and RequestCache get installed — it is never
+                // consulted by getSessionAuthenticationStrategy(H), which unconditionally defaults to
+                // ChangeSessionIdAuthenticationStrategy. SessionManagementFilter is therefore still
+                // in the chain, still holding that strategy, under a STATELESS policy.
+                //
+                // In a real servlet container that is harmless dead code: for a bearer-token request
+                // the strategy's own guard short-circuits it, because getSession(false) returns null
+                // (no session exists yet). Under the AWS serverless adapter that escape hatch is
+                // unreachable — ServerlessHttpServletRequest.getSession(false) ignores the `create`
+                // argument and always lazily creates a session, and its constructor hard-codes
+                // requestedSessionIdValid = true. Both guards are permanently true, so the strategy
+                // always reaches request.changeSessionId(), which the adapter leaves as an
+                // unimplemented stub that throws UnsupportedOperationException. Result before this
+                // fix: every authenticated request on Lambda 500s, while every test in a real
+                // container passes. NullAuthenticatedSessionStrategy is a no-op, which is the correct
+                // behaviour for a stateless resource server in either environment.
+                .sessionManagement(sm -> sm
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler));
