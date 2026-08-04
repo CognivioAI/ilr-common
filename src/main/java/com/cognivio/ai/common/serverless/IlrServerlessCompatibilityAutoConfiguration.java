@@ -14,6 +14,10 @@ import org.springframework.context.annotation.Bean;
  * root cause. Applied to every servlet web app, not just Lambda ones: the initializer is a
  * self-checking no-op on a real container, which keeps this off the adapter's classpath conditions
  * and testable without pulling the adapter into this library.
+ *
+ * <p>Its sibling {@link LambdaProfileDefaultsEnvironmentPostProcessor} covers the fixes that have to
+ * be property defaults rather than beans, and which therefore have to be applied before
+ * auto-configuration conditions are evaluated.
  */
 @AutoConfiguration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)

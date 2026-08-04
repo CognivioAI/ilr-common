@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.cognivio.ai.common.serverless.LambdaProfileDefaultsEnvironmentPostProcessor
