@@ -78,6 +78,26 @@ class InternalServiceClientFactorySpec extends Specification {
         recorder.lastRequest.headers.getFirst(HttpHeaders.AUTHORIZATION) == null
     }
 
+    def "a 200 JSON body served with a text/plain Content-Type still deserializes (KAN-236 adapter workaround)"() {
+        // Every lambda-profile ILR service answers a 200 with Content-Type: text/plain instead of
+        // application/json (a spring-cloud-function-serverless-web adapter defect, confirmed
+        // independent of the request's Accept header — see InternalServiceClientFactory). Before
+        // KAN-236 no internal client was strict about response Content-Type, so this was invisible;
+        // RestClient IS strict, and without this workaround every internal read would throw
+        // UnknownContentTypeException and silently fall back to seed/fail-safe defaults.
+        given:
+        authenticatedWithJwt()
+        recorder.responseBody = '{"route":"SKILLED_WORKER","version":"1"}'.bytes
+        recorder.contentType = org.springframework.http.MediaType.TEXT_PLAIN
+        RestClient client = factoryAllowing(INTERNAL).forBaseUrl(INTERNAL)
+
+        when:
+        Map body = client.get().uri('/ukvi-mappings').retrieve().body(Map)
+
+        then:
+        body == [route: 'SKILLED_WORKER', version: '1']
+    }
+
     def "building an internal client never mutates the injected builder"() {
         given: "the leak the factory exists to avoid: an interceptor escaping onto other clients"
         authenticatedWithJwt()
@@ -141,11 +161,17 @@ class InternalServiceClientFactorySpec extends Specification {
 
         MockClientHttpRequest lastRequest
         HttpStatus status = HttpStatus.OK
+        byte[] responseBody = new byte[0]
+        org.springframework.http.MediaType contentType = null
 
         @Override
         ClientHttpRequest createRequest(URI uri, HttpMethod httpMethod) {
             MockClientHttpRequest request = new MockClientHttpRequest(httpMethod, uri)
-            request.setResponse(new MockClientHttpResponse(new byte[0], status))
+            MockClientHttpResponse response = new MockClientHttpResponse(responseBody, status)
+            if (contentType != null) {
+                response.headers.contentType = contentType
+            }
+            request.setResponse(response)
             lastRequest = request
             return request
         }
