@@ -99,6 +99,16 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- KAN-236: RestClient / ClientHttpRequestInterceptor for the internal-call client factory.
+             spring-web already arrives transitively via spring-webmvc above, but this library now
+             depends on it directly, so it is declared directly. Still `provided`: every consuming
+             service brings spring-web at runtime via spring-boot-starter-web. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Security: OAuth2 resource server (JWT verification) + JOSE (Nimbus) -->
         <dependency>
             <groupId>org.springframework.security</groupId>
@@ -378,6 +388,13 @@
                                      classpath, where the consumer's own copy of the rule would then
                                      flag them. -->
                                 <exclude>com/cognivio/ai/common/security/violationfixture/**</exclude>
+                                <!-- KAN-236: same reasoning — violationfixture/violating/client holds
+                                     the deliberate direct-RestClient constructions that prove
+                                     InternalClientConstructionRules fires, and .../compliant/client is
+                                     its negative control. Both sit in a `..client..` package, so
+                                     shipping them would put classes the estate's own rule flags onto
+                                     every consumer's test classpath. -->
+                                <exclude>com/cognivio/ai/common/http/violationfixture/**</exclude>
                             </excludes>
                         </configuration>
                     </execution>
