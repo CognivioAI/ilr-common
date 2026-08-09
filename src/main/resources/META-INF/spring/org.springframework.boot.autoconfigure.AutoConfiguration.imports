@@ -6,3 +6,4 @@ com.cognivio.ai.common.authz.IlrMethodSecurityAutoConfiguration
 com.cognivio.ai.common.tenancy.IlrRlsAutoConfiguration
 com.cognivio.ai.common.snapstart.IlrSnapStartAutoConfiguration
 com.cognivio.ai.common.serverless.IlrServerlessCompatibilityAutoConfiguration
+com.cognivio.ai.common.http.IlrInternalHttpAutoConfiguration
