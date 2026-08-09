@@ -1,8 +1,13 @@
 package com.cognivio.ai.common.http;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -102,7 +107,40 @@ public class InternalServiceClientFactory {
     private RestClient.Builder freshBuilder() {
         RestClient.Builder builder =
                 builderProvider == null ? RestClient.builder() : builderProvider.getIfAvailable(RestClient::builder);
-        return builder.clone();
+        builder = builder.clone();
+        builder.messageConverters(InternalServiceClientFactory::acceptTextPlainAsJson);
+        return builder;
+    }
+
+    /**
+     * KAN-236 follow-up: every lambda-profile ILR service answers a normal 200 JSON body with
+     * {@code Content-Type: text/plain} under {@code spring-cloud-function-serverless-web}'s adapter —
+     * confirmed independent of the request's {@code Accept} header, so this is a response-side adapter
+     * defect, not a content-negotiation choice a client can steer around. Error responses (4xx/5xx,
+     * rendered via {@code CommonExceptionHandler}) are unaffected and already carry a correct
+     * {@code application/json} Content-Type.
+     *
+     * <p>Before KAN-236 this was invisible: no ILR service called another with a client strict about
+     * response Content-Type, so nothing ever surfaced it. {@link org.springframework.web.client.RestClient}
+     * is strict — it refuses to hand a {@code text/plain} body to Jackson, throwing
+     * {@code UnknownContentTypeException}, which this factory's callers (KAN-236's cross-service
+     * clients) then treat as a transport failure and silently fall back to seed/fail-safe defaults.
+     *
+     * <p>Scoped narrowly to internal-service Jackson converters only (not a global
+     * {@code RestClientCustomizer}, matching this class's existing allow-list-scoped blast-radius
+     * principle) — widening what counts as "JSON" for calls to Amazon Bedrock or GOV.UK, which this
+     * factory deliberately never builds, would be a much larger and unrelated risk.
+     */
+    private static void acceptTextPlainAsJson(List<HttpMessageConverter<?>> converters) {
+        for (HttpMessageConverter<?> converter : converters) {
+            if (converter instanceof MappingJackson2HttpMessageConverter jackson) {
+                List<MediaType> supported = new ArrayList<>(jackson.getSupportedMediaTypes());
+                if (!supported.contains(MediaType.TEXT_PLAIN)) {
+                    supported.add(MediaType.TEXT_PLAIN);
+                    jackson.setSupportedMediaTypes(supported);
+                }
+            }
+        }
     }
 
     /** Adapts a single builder instance to the {@link ObjectProvider} the factory consumes. */
