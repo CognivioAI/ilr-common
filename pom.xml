@@ -56,7 +56,7 @@
           by several points, and pinning the floor 0.6pp under actual (i.e. to 0.80) would make
           the gate flap on unrelated changes rather than catch real regressions.
         -->
-        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.version>0.8.15</jacoco.version>
         <coverage.line.min>0.75</coverage.line.min>
         <spotbugs.plugin.version>4.8.6.4</spotbugs.plugin.version>
         <findsecbugs.version>1.13.0</findsecbugs.version>
