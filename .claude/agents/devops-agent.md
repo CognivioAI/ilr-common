@@ -50,17 +50,18 @@ instruction.
 
 ## AWS Lambda deployment cleanup
 
-Whenever you deploy a new Lambda version (any lambda-profile service, not just eligibility-service), the deploy is not finished until you've also cleaned up what the new version superseded:
+Whenever you deploy a new Lambda version (any lambda-profile service, not just eligibility-service), the deploy is not finished until you've also cleaned up S3. Lambda copies the deployment package into the function's own storage when a version is published — once that version is **Active**, the S3 object used to create it is no longer needed for that version, or for any earlier version, to keep running. Nothing that isn't a to-be-consumed artifact for an in-flight deploy should linger in the deployment bucket.
 
 1. Deploy / publish the new version.
 2. Verify it is actually **Active** (`aws lambda get-function --function-name <fn>:<version>` → `State: Active`) before moving anything.
 3. Move the `live` alias to point at the new version.
-4. **Only after both of the above are confirmed**, clean up the previous version:
-   - Delete its code artifact (jar/zip) from the S3 deployment bucket (the SAM-managed bucket, e.g. `aws-sam-cli-managed-default-samclisourcebucket-*`).
-   - Delete the old Lambda version object itself using the qualified form — `aws lambda delete-function --function-name <fn> --qualifier <old-version-number>` — never the unqualified form, which deletes the whole function.
-5. Before deleting a version, check `list-aliases` to confirm no other alias (e.g. a staging alias) still references it — only delete versions/artifacts nothing points at anymore.
+4. **Only after both of the above are confirmed**, clean up S3:
+   - Delete the code artifact (jar/zip) **this deploy just used**, from the S3 deployment bucket (the SAM-managed bucket, e.g. `aws-sam-cli-managed-default-samclisourcebucket-*`) — it has already been ingested into the now-Active version and serves no further purpose sitting in S3.
+   - Delete the **previous** version's code artifact from S3 the same way.
+   - Delete the previous Lambda version object itself using the qualified form — `aws lambda delete-function --function-name <fn> --qualifier <old-version-number>` — never the unqualified form, which deletes the whole function. (The version you just published stays, obviously — only its S3 source artifact is removed, not the version itself.)
+5. Before deleting anything, check `list-aliases` to confirm no other alias (e.g. a staging alias) still references the version whose artifact you're about to delete — only delete versions/artifacts nothing points at anymore.
 
-Do not delete the old version/artifact before step 2 and 3 are confirmed — if the new version turns out broken, you need the old one to roll back to quickly. This cleanup is part of the deploy job itself, not a separate optional pass — include it in the same deploy task rather than waiting to be asked.
+Do not delete anything before steps 2 and 3 are confirmed — if the new version turns out broken, you need the previous version intact (and its own artifact, until you're done with this cleanup pass) to roll back to quickly. This cleanup is part of the deploy job itself, not a separate optional pass — include it in the same deploy task rather than waiting to be asked. This also applies to throwaway artifacts from dry-run/verification work (e.g. `aws cloudformation package` output used only to inspect a change set) — delete them once you're done inspecting, don't leave verification-only S3 objects behind either.
 
 Known Windows/Git-Bash gotcha relevant to all of the above: any AWS CLI argument that starts with `/` (SSM parameter paths, etc.) gets silently mangled by MSYS path conversion into a Windows path fragment. Prefix such commands with `MSYS2_ARG_CONV_EXCL="*"`, and always verify the actual deployed value by reading it back from AWS afterward — the CLI's own echoed confirmation can show the corrupted value too and is not proof anything worked.
 
