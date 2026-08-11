@@ -1,0 +1,142 @@
+name: Reusable — Publish Lambda Artifact
+
+# KAN-245 (S5 of the KAN-240..246 deployment-pipeline sequence). Builds a service's `-P lambda`
+# artifact (uber-zip, see ilr-infrastructure/serverless/README.md "Build the artifacts") and
+# uploads it to the SAM-managed S3 bucket keyed by commit SHA, NOT the Maven
+# `0.1.0-SNAPSHOT` version — so it is always possible to know exactly which commit is deployed,
+# and re-running a build for the same commit always produces the same key (idempotent, safe to
+# re-publish).
+#
+# Key layout: s3://<bucket>/<service>/<git-sha>/<service>-aws.zip
+#
+# Auth: GitHub OIDC -> the KAN-245 `github-actions-ilr-deploy-dryrun` IAM role (no long-lived AWS
+# keys). That role grants s3:PutObject only on the SAM-managed artifacts bucket — nothing else is
+# needed for a publish step.
+#
+# This workflow deliberately takes NO real configuration as an input beyond `service-name` (which
+# artifact to build) and the role/bucket/region wiring needed to reach AWS at all. It does not
+# take environment, database, or any other deploy-time config — those resolve from the S2 SSM
+# foundation contract inside deploy-service.yml, not here.
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: >
+          Short service key matching serverless/template.consolidated.yaml's ServiceName
+          AllowedValues (e.g. "tracking"), also used as the S3 key prefix.
+        required: true
+        type: string
+      maven-artifact-id:
+        description: >
+          Maven artifactId for this service, used to locate the built zip under target/
+          (target/<maven-artifact-id>-<version>-aws.zip). Usually the same as service-name with
+          "-service" appended, but passed explicitly rather than derived to avoid a naming
+          convention leaking into this workflow.
+        required: true
+        type: string
+      aws-region:
+        description: "AWS region the artifact bucket and target account live in."
+        type: string
+        default: "eu-west-2"
+      aws-role-arn:
+        description: "IAM role ARN to assume via GitHub OIDC for the S3 upload."
+        type: string
+        default: "arn:aws:iam::215939710738:role/github-actions-ilr-deploy-dryrun"
+      artifact-bucket:
+        description: "SAM-managed S3 bucket that holds published Lambda artifacts."
+        type: string
+        default: "aws-sam-cli-managed-default-samclisourcebucket-zbuamtwlnizt"
+      jdk-version:
+        type: string
+        default: "21"
+      checkout-ilr-common:
+        description: "Whether this service depends on com.cognivio.ai:ilr-common:SNAPSHOT and needs it installed before the lambda-profile build."
+        type: boolean
+        default: true
+      ilr-common-repo:
+        type: string
+        default: "CognivioAI/ilr-common"
+      ilr-common-ref:
+        type: string
+        default: "main"
+    outputs:
+      artifact-sha:
+        description: "The git SHA this artifact was published under (== github.sha of the caller)."
+        value: ${{ jobs.publish.outputs.artifact-sha }}
+      s3-key:
+        description: "Full s3:// URI of the published artifact."
+        value: ${{ jobs.publish.outputs.s3-key }}
+
+permissions:
+  contents: read
+  id-token: write # required for GitHub OIDC -> AWS
+
+concurrency:
+  group: publish-artifact-${{ inputs.service-name }}-${{ github.ref }}
+  cancel-in-progress: false # never cancel a mid-flight publish; a half-uploaded artifact is worse than a slow one
+
+jobs:
+  publish:
+    name: Build & publish (${{ inputs.service-name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      artifact-sha: ${{ steps.sha.outputs.sha }}
+      s3-key: ${{ steps.upload.outputs.s3-key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve artifact SHA
+        id: sha
+        run: echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK ${{ inputs.jdk-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.jdk-version }}
+          distribution: "temurin"
+          cache: maven
+
+      # Same no-secrets rationale as java-service-ci.yml: ilr-common is public, default
+      # GITHUB_TOKEN is sufficient.
+      - name: Checkout ilr-common
+        if: ${{ inputs.checkout-ilr-common }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.ilr-common-repo }}
+          ref: ${{ inputs.ilr-common-ref }}
+          path: ilr-common-dep
+
+      - name: Install ilr-common to local Maven repo
+        if: ${{ inputs.checkout-ilr-common }}
+        run: mvn -B -ntp -f ${{ github.workspace }}/ilr-common-dep/pom.xml install -DskipTests
+
+      - name: Build lambda artifact
+        run: mvn -B -ntp -P lambda -DskipTests package
+
+      - name: Locate built artifact
+        id: locate
+        run: |
+          set -euo pipefail
+          ARTIFACT=$(find target -maxdepth 1 -name '${{ inputs.maven-artifact-id }}-*-aws.zip' | head -n1)
+          if [ -z "$ARTIFACT" ]; then
+            echo "No -P lambda artifact matching target/${{ inputs.maven-artifact-id }}-*-aws.zip found" >&2
+            exit 1
+          fi
+          echo "path=$ARTIFACT" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Upload artifact (SHA-pinned key)
+        id: upload
+        run: |
+          set -euo pipefail
+          KEY="${{ inputs.service-name }}/${{ steps.sha.outputs.sha }}/${{ inputs.service-name }}-aws.zip"
+          aws s3 cp "${{ steps.locate.outputs.path }}" "s3://${{ inputs.artifact-bucket }}/${KEY}"
+          echo "s3-key=s3://${{ inputs.artifact-bucket }}/${KEY}" >> "$GITHUB_OUTPUT"

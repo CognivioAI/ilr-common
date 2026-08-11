@@ -1,0 +1,194 @@
+name: Reusable — Deploy Service (dry-run only)
+
+# KAN-245 (S5 of the KAN-240..246 deployment-pipeline sequence).
+#
+# DRY-RUN ONLY. This workflow creates a CloudFormation change set against the live
+# template.consolidated.yaml stack for one service, describes it, posts the summary as a PR
+# comment, then DELETES the change set. It never executes a change set and never mutates a
+# Lambda function directly. There is deliberately no "apply"/"execute" mode implemented here —
+# see the KAN-245 ticket: real execution is a separate future decision, enabled one service at a
+# time starting with tracking-service, only after a period of human review of dry-run output.
+#
+# The pipeline takes exactly ONE real parameter: `artifact-sha` (the git SHA of the service being
+# deployed, used only to locate its SHA-pinned artifact in S3 — see publish-artifact.yml).
+# Everything else (DB URL, Cognito issuer, per-service base URLs) resolves inside
+# template.consolidated.yaml itself from the S2 SSM foundation contract
+# (/ilr/cognivio-dev/foundation/*) via CloudFormation dynamic references — this workflow does not
+# pass any of that as an input.
+#
+# ============================================================================================
+# PACKAGING-BLOCKER FIX (was a KNOWN GAP flagged here, now resolved on the ilr-infrastructure
+# side — see the fix/KAN-244-codeuri-bucket-key PR referencing KAN-244/KAN-245):
+#
+# template.consolidated.yaml's CodeUri used to be a LITERAL LOCAL FILE PATH for every one of the
+# 12 services (e.g. `../../ilr-tracking-service-qa/target/tracking-service-0.1.0-SNAPSHOT-aws.zip`).
+# `aws cloudformation package` walked EVERY Function resource's CodeUri at package/transform time
+# — before CloudFormation ever evaluates which `Condition` is actually true — so packaging ONE
+# service required all 12 services' ~65-70MB artifacts to exist locally (confirmed live: ~4.5
+# minutes, all twelve zips uploaded regardless of `ServiceName`). That made it impossible for a
+# CI job with only its own freshly-built artifact on disk to complete packaging.
+#
+# CodeUri is now an explicit `Bucket`/`Key` S3 reference on every Function resource, built from
+# each service's own literal service-name prefix + a template `ArtifactSha` Parameter
+# (`!Sub "<service>/${ArtifactSha}/<service>-aws.zip"`), matching the key layout
+# publish-artifact.yml already uploads to. With CodeUri already fully resolved to Bucket/Key,
+# there is nothing left for `aws cloudformation package` to do for any Function resource — this
+# workflow no longer downloads the artifact onto the runner or needs to know its local target/
+# path (`codeuri-relative-path` input removed), and `package` no longer walks/uploads any of the
+# other 11 services' artifacts. It's kept as a cheap template-normalization step only (see the
+# "Package" step below for why) rather than dropped outright. `ArtifactSha` is now passed straight
+# through as a `--parameter-overrides`/change-set `ParameterKey` value; CloudFormation resolves
+# the S3 object itself from that. Re-verified via the KAN-244 equivalence gate
+# (`sam deploy --no-execute-changeset`, describe, delete) against all 12 live stacks after this
+# change — no diffs beyond the same pre-documented noise classes (Lambda Version churn from the
+# CodeUri representation changing shape; cosmetic Metadata).
+# ============================================================================================
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: 'Service key, matching template.consolidated.yaml ServiceName AllowedValues (e.g. "tracking").'
+        required: true
+        type: string
+      artifact-sha:
+        description: >
+          Git SHA the artifact was published under by publish-artifact.yml. The ONE real
+          deploy-time parameter — passed straight through as the template's `ArtifactSha`
+          Parameter, which CloudFormation uses to resolve each Function's CodeUri Key
+          (s3://<bucket>/<service-name>/<artifact-sha>/<service-name>-aws.zip).
+        required: true
+        type: string
+      infra-repo:
+        type: string
+        default: "CognivioAI/ilr-infrastructure"
+      infra-ref:
+        type: string
+        default: "main"
+      stack-name:
+        description: "Live stack name for this service, e.g. ilr-tracking-cognivio-dev."
+        required: true
+        type: string
+      aws-region:
+        type: string
+        default: "eu-west-2"
+      aws-role-arn:
+        type: string
+        default: "arn:aws:iam::215939710738:role/github-actions-ilr-deploy-dryrun"
+      artifact-bucket:
+        type: string
+        default: "aws-sam-cli-managed-default-samclisourcebucket-zbuamtwlnizt"
+    secrets:
+      # ilr-infrastructure is private (unlike ilr-common); the default GITHUB_TOKEN in a
+      # cross-repo checkout from a public repo's reusable workflow cannot read it. A
+      # read-only, org-scoped PAT is required here -- same CI_PAT convention referenced in
+      # java-service-ci.yml, used ONLY for this checkout, never for AWS auth (that's OIDC).
+      infra-checkout-token:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC -> AWS
+  pull-requests: write # to post the change-set summary as a PR comment
+
+concurrency:
+  group: deploy-service-${{ inputs.service-name }}-dryrun
+  cancel-in-progress: true # dry-run change sets are cheap to redo; no reason to queue
+
+jobs:
+  dry-run-change-set:
+    name: Dry-run change set (${{ inputs.service-name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout ilr-infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.infra-repo }}
+          ref: ${{ inputs.infra-ref }}
+          token: ${{ secrets.infra-checkout-token }}
+          path: ilr-infrastructure
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      # `aws cloudformation package` no longer has any local CodeUri artifact to upload for ANY
+      # of the 12 Function resources now that CodeUri is Bucket/Key (see the packaging-blocker
+      # fix note above) — this step now runs in seconds, purely to normalize the template's YAML
+      # (it also expands the `&DbCredentialsSsmPolicy` YAML anchor/`*DbCredentialsSsmPolicy`
+      # aliases in template.consolidated.yaml's Metadata; raw `aws cloudformation
+      # create-change-set --template-body file://...` and `aws cloudformation deploy` both reject
+      # a template containing YAML aliases outright — "YAML aliases are not allowed in
+      # CloudFormation templates" — confirmed empirically re-verifying this workflow's redesign;
+      # `package`'s own YAML loader/dumper is what resolves them, independent of whether it has
+      # anything to upload). It does NOT require or touch the other 11 services' artifacts —
+      # nothing on disk is read for CodeUri at all anymore.
+      - name: Package (template normalization only — no artifacts to upload)
+        working-directory: ilr-infrastructure/serverless
+        run: |
+          aws cloudformation package \
+            --template-file template.consolidated.yaml \
+            --s3-bucket ${{ inputs.artifact-bucket }} \
+            --output-template-file packaged-template.yaml
+
+      - name: Create change set (dry-run — no execute)
+        id: create
+        working-directory: ilr-infrastructure/serverless
+        run: |
+          set -euo pipefail
+          CS_NAME="dryrun-${{ inputs.service-name }}-$(echo "${{ inputs.artifact-sha }}" | cut -c1-8)-${{ github.run_id }}"
+          echo "cs-name=$CS_NAME" >> "$GITHUB_OUTPUT"
+          aws cloudformation create-change-set \
+            --stack-name ${{ inputs.stack-name }} \
+            --change-set-name "$CS_NAME" \
+            --template-body file://packaged-template.yaml \
+            --capabilities CAPABILITY_IAM \
+            --parameters \
+                ParameterKey=ServiceName,ParameterValue=${{ inputs.service-name }} \
+                ParameterKey=ArtifactSha,ParameterValue=${{ inputs.artifact-sha }} \
+                ParameterKey=BudgetAlertEmail,ParameterValue=ganesh0211@gmail.com
+          aws cloudformation wait change-set-create-complete \
+            --stack-name ${{ inputs.stack-name }} \
+            --change-set-name "$CS_NAME" || true # non-empty change sets can report FAILED-with-no-op; describe step below has the real answer
+
+      - name: Describe change set
+        id: describe
+        working-directory: ilr-infrastructure/serverless
+        run: |
+          set -euo pipefail
+          aws cloudformation describe-change-set \
+            --stack-name ${{ inputs.stack-name }} \
+            --change-set-name "${{ steps.create.outputs.cs-name }}" \
+            > changeset.json
+          STATUS=$(jq -r '.Status' changeset.json)
+          REASON=$(jq -r '.StatusReason // "n/a"' changeset.json)
+          {
+            echo "## Dry-run change set — ${{ inputs.service-name }} @ \`${{ inputs.artifact-sha }}\`"
+            echo ""
+            echo "Stack: \`${{ inputs.stack-name }}\`  |  Change set: \`${{ steps.create.outputs.cs-name }}\`"
+            echo "Status: **$STATUS**  ($REASON)"
+            echo ""
+            echo "| Action | Logical ID | Type | Replacement |"
+            echo "|---|---|---|---|"
+            jq -r '.Changes[]? | "| \(.ResourceChange.Action) | \(.ResourceChange.LogicalResourceId) | \(.ResourceChange.ResourceType) | \(.ResourceChange.Replacement // "n/a") |"' changeset.json
+            echo ""
+            echo "_No changes were executed — this change set is deleted immediately after this comment is posted. dry-run only, per KAN-245._"
+          } > summary.md
+          cat summary.md
+
+      - name: Delete change set (always — dry-run never executes)
+        if: always() && steps.create.outputs.cs-name != ''
+        working-directory: ilr-infrastructure/serverless
+        run: |
+          aws cloudformation delete-change-set \
+            --stack-name ${{ inputs.stack-name }} \
+            --change-set-name "${{ steps.create.outputs.cs-name }}" || true
+
+      - name: Post change-set summary as PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file ilr-infrastructure/serverless/summary.md
