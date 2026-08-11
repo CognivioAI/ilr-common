@@ -17,40 +17,31 @@ name: Reusable — Deploy Service (dry-run only)
 # pass any of that as an input.
 #
 # ============================================================================================
-# KNOWN GAP, FLAGGED RATHER THAN WORKED AROUND (found while building this workflow):
+# PACKAGING-BLOCKER FIX (was a KNOWN GAP flagged here, now resolved on the ilr-infrastructure
+# side — see the fix/KAN-244-codeuri-bucket-key PR referencing KAN-244/KAN-245):
 #
-# template.consolidated.yaml's CodeUri for every one of the 12 services is a LITERAL LOCAL FILE
-# PATH (e.g. `../../ilr-tracking-service-qa/target/tracking-service-0.1.0-SNAPSHOT-aws.zip`),
-# by design (see the template's own header comment) so `sam deploy --resolve-s3` /
-# `aws cloudformation package` can upload it itself. `aws cloudformation package` walks EVERY
-# Function resource's CodeUri in the template and requires the local file to exist for ALL 12,
-# regardless of which one is Condition-gated to actually deploy (Conditions are evaluated at
-# stack-operation time, package/transform-time is earlier and doesn't know about them - confirmed
-# live: `aws cloudformation package` against this template took ~4.5 minutes and uploaded all
-# twelve ~65-70MB zips, not just the one for `ServiceName=tracking`).
+# template.consolidated.yaml's CodeUri used to be a LITERAL LOCAL FILE PATH for every one of the
+# 12 services (e.g. `../../ilr-tracking-service-qa/target/tracking-service-0.1.0-SNAPSHOT-aws.zip`).
+# `aws cloudformation package` walked EVERY Function resource's CodeUri at package/transform time
+# — before CloudFormation ever evaluates which `Condition` is actually true — so packaging ONE
+# service required all 12 services' ~65-70MB artifacts to exist locally (confirmed live: ~4.5
+# minutes, all twelve zips uploaded regardless of `ServiceName`). That made it impossible for a
+# CI job with only its own freshly-built artifact on disk to complete packaging.
 #
-# That means THIS workflow, run from a clean GitHub Actions checkout of ilr-infrastructure with
-# only ONE service's artifact published (tracking, per this story's scope), cannot currently
-# complete the `package` step: the other 11 services' local CodeUri paths won't exist on the
-# runner and `aws cloudformation package` will fail outright rather than skip them.
-#
-# This was proven end-to-end manually against the real cognivio-dev account (package ->
-# create-change-set -> describe-change-set -> delete-change-set, then cleaned up) using this
-# machine's already-built local artifacts for all 12 services -- the AWS-side mechanics
-# (permissions, change-set creation, dry-run safety) are confirmed correct. What's NOT yet solved
-# is making that reproducible from a bare CI checkout that only has one service's artifact.
-#
-# NOT fixed here because doing so would mean either (a) seeding baseline artifacts / SSM pointers
-# for all 12 services as part of a "wire one service" story -- scope creep into the other 11
-# services this story explicitly leaves unwired, and shared state touching all 12 live stacks --
-# or (b) redesigning CodeUri to Bucket/Key in template.consolidated.yaml, which would need
-# re-verification of KAN-244's proven-equivalence-to-all-12-live-stacks result. Both are real
-# decisions for a human/a follow-up story, not something to hack around silently here.
-#
-# Until that's resolved, treat this reusable workflow as verified correct in its AWS-facing
-# design (least-privilege OIDC role, correct create/describe/delete flow, correct single-SHA
-# input contract) but NOT yet verified to complete successfully end-to-end on a real GitHub
-# Actions runner for a repo with only its own service's artifact published.
+# CodeUri is now an explicit `Bucket`/`Key` S3 reference on every Function resource, built from
+# each service's own literal service-name prefix + a template `ArtifactSha` Parameter
+# (`!Sub "<service>/${ArtifactSha}/<service>-aws.zip"`), matching the key layout
+# publish-artifact.yml already uploads to. With CodeUri already fully resolved to Bucket/Key,
+# there is nothing left for `aws cloudformation package` to do for any Function resource — this
+# workflow no longer downloads the artifact onto the runner or needs to know its local target/
+# path (`codeuri-relative-path` input removed), and `package` no longer walks/uploads any of the
+# other 11 services' artifacts. It's kept as a cheap template-normalization step only (see the
+# "Package" step below for why) rather than dropped outright. `ArtifactSha` is now passed straight
+# through as a `--parameter-overrides`/change-set `ParameterKey` value; CloudFormation resolves
+# the S3 object itself from that. Re-verified via the KAN-244 equivalence gate
+# (`sam deploy --no-execute-changeset`, describe, delete) against all 12 live stacks after this
+# change — no diffs beyond the same pre-documented noise classes (Lambda Version churn from the
+# CodeUri representation changing shape; cosmetic Metadata).
 # ============================================================================================
 
 on:
@@ -61,16 +52,11 @@ on:
         required: true
         type: string
       artifact-sha:
-        description: "Git SHA the artifact was published under by publish-artifact.yml. The ONE real deploy-time parameter."
-        required: true
-        type: string
-      codeuri-relative-path:
         description: >
-          Path, relative to the parent of the ilr-infrastructure checkout (i.e. matching the
-          `../../...` form template.consolidated.yaml's CodeUri already uses for this service),
-          where the downloaded artifact must be placed so `aws cloudformation package` finds it.
-          Caller-supplied because only the calling repo's own template entry defines this, e.g.
-          "ilr-tracking-service-qa/target/tracking-service-0.1.0-SNAPSHOT-aws.zip" for tracking.
+          Git SHA the artifact was published under by publish-artifact.yml. The ONE real
+          deploy-time parameter — passed straight through as the template's `ArtifactSha`
+          Parameter, which CloudFormation uses to resolve each Function's CodeUri Key
+          (s3://<bucket>/<service-name>/<artifact-sha>/<service-name>-aws.zip).
         required: true
         type: string
       infra-repo:
@@ -129,22 +115,23 @@ jobs:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
 
-      - name: Download SHA-pinned artifact into the CodeUri location the template expects
-        run: |
-          set -euo pipefail
-          DEST="${{ github.workspace }}/${{ inputs.codeuri-relative-path }}"
-          mkdir -p "$(dirname "$DEST")"
-          aws s3 cp \
-            "s3://${{ inputs.artifact-bucket }}/${{ inputs.service-name }}/${{ inputs.artifact-sha }}/${{ inputs.service-name }}-aws.zip" \
-            "$DEST"
-
-      - name: Package (uploads local CodeUri artifacts to S3, rewrites template)
+      # `aws cloudformation package` no longer has any local CodeUri artifact to upload for ANY
+      # of the 12 Function resources now that CodeUri is Bucket/Key (see the packaging-blocker
+      # fix note above) — this step now runs in seconds, purely to normalize the template's YAML
+      # (it also expands the `&DbCredentialsSsmPolicy` YAML anchor/`*DbCredentialsSsmPolicy`
+      # aliases in template.consolidated.yaml's Metadata; raw `aws cloudformation
+      # create-change-set --template-body file://...` and `aws cloudformation deploy` both reject
+      # a template containing YAML aliases outright — "YAML aliases are not allowed in
+      # CloudFormation templates" — confirmed empirically re-verifying this workflow's redesign;
+      # `package`'s own YAML loader/dumper is what resolves them, independent of whether it has
+      # anything to upload). It does NOT require or touch the other 11 services' artifacts —
+      # nothing on disk is read for CodeUri at all anymore.
+      - name: Package (template normalization only — no artifacts to upload)
         working-directory: ilr-infrastructure/serverless
         run: |
           aws cloudformation package \
             --template-file template.consolidated.yaml \
             --s3-bucket ${{ inputs.artifact-bucket }} \
-            --s3-prefix ${{ inputs.service-name }}-dryrun-package \
             --output-template-file packaged-template.yaml
 
       - name: Create change set (dry-run — no execute)
@@ -161,6 +148,7 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --parameters \
                 ParameterKey=ServiceName,ParameterValue=${{ inputs.service-name }} \
+                ParameterKey=ArtifactSha,ParameterValue=${{ inputs.artifact-sha }} \
                 ParameterKey=BudgetAlertEmail,ParameterValue=ganesh0211@gmail.com
           aws cloudformation wait change-set-create-complete \
             --stack-name ${{ inputs.stack-name }} \
