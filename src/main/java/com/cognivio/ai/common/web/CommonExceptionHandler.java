@@ -1,6 +1,8 @@
 package com.cognivio.ai.common.web;
 
 import jakarta.validation.ConstraintViolationException;
+import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,6 +44,9 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class CommonExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CommonExceptionHandler.class);
+
+    /** Upper bound on how far {@link #causeChain(Throwable)} walks, guarding against cyclic causes. */
+    private static final int MAX_CAUSE_DEPTH = 10;
 
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ErrorResponse> handleDomain(DomainException ex) {
@@ -100,7 +105,11 @@ public class CommonExceptionHandler {
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation reached the boundary: {}", ex.getMessage());
+        // KAN-201: never log ex.getMessage() here — PostgreSQL puts the offending values in the
+        // message ("Detail: Key (tenant_id, idempotency_key)=(<uuid>, <value>) already exists").
+        log.warn("Data integrity violation reached the boundary: type={} constraint={} sqlState={}",
+                ex.getClass().getSimpleName(), constraintName(ex).orElse("unknown"),
+                sqlState(ex).orElse("unknown"));
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), "CONSTRAINT_CONFLICT",
                         "The request conflicts with existing data — retry", List.of(), traceId()));
@@ -126,7 +135,10 @@ public class CommonExceptionHandler {
     public ResponseEntity<ErrorResponse> handleNotReadable(HttpMessageNotReadableException ex) {
         String field = extractFieldName(ex).orElse("body");
         FieldErrorDetail detail = new FieldErrorDetail(field, "must be a valid, correctly formatted value");
-        log.warn("Malformed request body: {}", ex.getMessage());
+        // KAN-201: Jackson embeds the offending JSON fragment in its message — log the
+        // exception type and the target field path only, never the value that failed.
+        log.warn("Malformed request body: type={} cause={} field={}",
+                ex.getClass().getSimpleName(), causeType(ex), field);
         return ResponseEntity.badRequest()
                 .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), "VALIDATION_ERROR",
                         "Request body could not be parsed", List.of(detail), traceId()));
@@ -161,6 +173,55 @@ public class CommonExceptionHandler {
             return Optional.of(ife.getPath().get(ife.getPath().size() - 1).getFieldName());
         }
         return Optional.empty();
+    }
+
+    /** Simple name of the immediate cause, for a log line that omits the raw message (KAN-201). */
+    private static String causeType(Throwable ex) {
+        return ex.getCause() == null ? "none" : ex.getCause().getClass().getSimpleName();
+    }
+
+    /**
+     * Best-effort constraint name for a data-integrity failure, taken from the first cause in the
+     * chain exposing a {@code getConstraintName()} accessor (Hibernate's
+     * {@code org.hibernate.exception.ConstraintViolationException}).
+     *
+     * <p>Resolved reflectively on purpose: {@code ilr-common} is consumed by services that do not
+     * put Hibernate on the classpath, so this class must not carry a compile-time reference to it.
+     * A constraint name is a schema identifier and safe to log; the exception message is not.
+     */
+    private static Optional<String> constraintName(Throwable ex) {
+        for (Throwable cause : causeChain(ex)) {
+            try {
+                Object name = cause.getClass().getMethod("getConstraintName").invoke(cause);
+                if (name instanceof String s && !s.isBlank()) {
+                    return Optional.of(s);
+                }
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // This cause is not a Hibernate ConstraintViolationException — keep walking.
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Best-effort SQLState (e.g. {@code 23505} unique violation) from the underlying JDBC failure. */
+    private static Optional<String> sqlState(Throwable ex) {
+        for (Throwable cause : causeChain(ex)) {
+            if (cause instanceof SQLException sqlException && sqlException.getSQLState() != null) {
+                return Optional.of(sqlException.getSQLState());
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The exception and its causes, depth-bounded so a self- or cyclic cause cannot spin. */
+    private static List<Throwable> causeChain(Throwable ex) {
+        List<Throwable> chain = new ArrayList<>();
+        Throwable current = ex;
+        while (current != null && chain.size() < MAX_CAUSE_DEPTH && !chain.contains(current)) {
+            chain.add(current);
+            current = current.getCause();
+        }
+        return chain;
     }
 
     private static String traceId() {
